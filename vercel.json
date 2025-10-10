@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "framework": "nextjs",
+  "functions": {
+    "app/api/schedule/export/[year]/[month]/route.ts": {
+      "runtime": "nodejs18.x"
+    }
+  }
+}

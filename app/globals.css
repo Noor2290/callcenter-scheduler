@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f8fafc; /* light slate background */
+  --foreground: #0f172a; /* slate-900 */
+  --brand: #0e938d; /* softened teal */
+  --brand-600: #14b8a6; /* teal-500/600 */
+  --brand-50: #f0fdfa; /* teal-50 */
+  --muted: #64748b; /* slate-500 */
+  --card: #ffffff;
+  --border: #e5e7eb; /* gray-200 */
+}
+
+/* Theme variables consumed directly via var(--*) */
+/* --font-sans and --font-mono are provided by next/font variables in layout */
+
+/* Force light theme for comfortable reading */
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  line-height: 1.6;
+}
+
+/* Cards */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(2, 6, 23, 0.04);
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 2.25rem;
+  padding: 0 0.9rem;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-weight: 600;
+}
+.btn-primary { background: var(--brand-600); color: #fff; }
+.btn-primary:hover { background: var(--brand); }
+.btn-outline { background: #fff; color: var(--brand); border-color: var(--brand-600); }
+.btn-outline:hover { background: var(--brand-50); }
+.btn-danger { background: #fee2e2; color: #b91c1c; }
+.btn-danger:hover { background: #fecaca; }
+
+/* Tables */
+.table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.table th { background: #f8fafc; color: #0f172a; font-weight: 600; text-align: right; }
+.table th, .table td { border-bottom: 1px solid var(--border); padding: 10px; }
+.table tr:hover td { background: #f9fafb; }
