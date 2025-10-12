@@ -99,6 +99,31 @@ export async function generateSchedule(opts: { year: number; month: number; useB
   type Cell = { symbol: string; shift?: ShiftName; offCountWeek?: number; offSource?: 'friday' | 'request' | 'random' | 'trim' };
   const grid = new Map<string, Map<string, Cell>>(); // empId -> (dateISO -> Cell)
 
+  // Count current OFF (non-Friday) on a specific date across all employees
+  const countOffOnDate = (isoDate: string) => {
+    let cnt = 0;
+    for (const emp of emps) {
+      const c = grid.get(emp.id)?.get(isoDate);
+      if (c?.symbol === SPECIAL_SYMBOL.Off) cnt += 1;
+    }
+    return cnt;
+  };
+
+  // Pick a fixed weekly symbol variant based on employment type, shift, and week index
+  const weeklySymbol = (empType: EmploymentType, shift: ShiftName, weekIdx: number): string => {
+    if (empType === 'FullTime') {
+      if (shift === 'Morning') {
+        const variants = ['MA1','MA2','MA4'];
+        return variants[weekIdx % variants.length];
+      } else {
+        const variants = ['EA1','E2','E5'];
+        return variants[weekIdx % variants.length];
+      }
+    }
+    // PartTime and Trainee keep existing mapping
+    return SHIFT_SYMBOL[empType][shift];
+  };
+
   // Helper to get week-of-month index (Sat-Thu)
   const weekIndexCache = new Map<string, number>();
   const dateISO = (d: Date) => format(d, 'yyyy-MM-dd');
@@ -236,12 +261,24 @@ export async function generateSchedule(opts: { year: number; month: number; useB
               return { d, wd, score };
             });
             scored.sort((a, b) => a.score - b.score);
-            const pick = scored[0].d;
-            extraOffDayISO = dateISO(pick);
+            // pick first candidate that does not exceed daily OFF cap (<=2 per day)
+            let picked: Date | null = null;
+            for (const s of scored) {
+              const iso = dateISO(s.d);
+              if (countOffOnDate(iso) < 2) { picked = s.d; break; }
+            }
+            if (picked) {
+              extraOffDayISO = dateISO(picked);
+            } else {
+              extraOffDayISO = null;
+            }
             // record in history and week balancing
-            const wd = scored[0].wd;
-            hist.set(wd, (hist.get(wd) ?? 0) + 1);
-            weekOffCountByWeekday.set(wd, (weekOffCountByWeekday.get(wd) ?? 0) + 1);
+            if (extraOffDayISO) {
+              const sel = scored.find(s => dateISO(s.d) === extraOffDayISO)!;
+              const wd = sel.wd;
+              hist.set(wd, (hist.get(wd) ?? 0) + 1);
+              weekOffCountByWeekday.set(wd, (weekOffCountByWeekday.get(wd) ?? 0) + 1);
+            }
           }
         }
       }
@@ -253,10 +290,15 @@ export async function generateSchedule(opts: { year: number; month: number; useB
         if (cell.symbol === SPECIAL_SYMBOL.Vacation || cell.symbol === SPECIAL_SYMBOL.Off) continue;
         if (isFriday(d)) continue;
         if (extraOffDayISO && iso === extraOffDayISO) {
-          grid.get(emp.id)!.set(iso, { symbol: SPECIAL_SYMBOL.Off, offSource: 'random' });
+          // Respect daily OFF cap (max 2, excluding Friday)
+          if (countOffOnDate(iso) < 2) {
+            grid.get(emp.id)!.set(iso, { symbol: SPECIAL_SYMBOL.Off, offSource: 'random' });
+          }
           continue;
         }
-        grid.get(emp.id)!.set(iso, { symbol: symbolFor(emp.employment_type, chosen), shift: chosen });
+        const wIdxLocal = getWeekIndex(d);
+        const sym = weeklySymbol(emp.employment_type, chosen, wIdxLocal);
+        grid.get(emp.id)!.set(iso, { symbol: sym, shift: chosen });
       }
 
       // Safety guard: ensure at least ONE working day in this week for the employee if possible
@@ -310,19 +352,45 @@ export async function generateSchedule(opts: { year: number; month: number; useB
     // Fill shortages first
     const assignShift = (shift: ShiftName, need: number) => {
       if (need <= 0) return;
+      // helper: detect employee's weekly shift for the week of date d
+      const getEmpWeekShift = (empId: string, anyDateInWeek: Date): ShiftName | undefined => {
+        const wIdx = getWeekIndex(anyDateInWeek);
+        const wDays = weeks.get(wIdx) || [];
+        for (const wd of wDays) {
+          if (isFriday(wd)) continue;
+          const c = grid.get(empId)!.get(dateISO(wd))!;
+          if (c.shift) return c.shift;
+        }
+        return undefined;
+      };
       // candidates are available (not V), allowed for shift, and currently O or empty or other shift if useBetween allows
-      const candidates = empCells
+      let candidates = empCells
         .filter(({ emp, cell }) => cell.symbol !== SPECIAL_SYMBOL.Vacation)
         .filter(({ emp, cell }) => emp.allowed_shifts.includes(shift))
         .filter(({ cell }) => {
+          // exclude Off that came from an explicit request
+          if (cell.symbol === SPECIAL_SYMBOL.Off && cell.offSource === 'request') return false;
           if (!cell.symbol || cell.symbol === SPECIAL_SYMBOL.Off) return true;
           if (useBetween) return true; // allow per-day switching when enabled
           // when disabled, we'll still consider opposite-shift candidates but we will flip their whole week below
           return true;
         })
-        .sort((a, b) => (empWorkload.get(a.emp.id)! - empWorkload.get(b.emp.id)!));
+        .map(ed => ({ ...ed, weekShift: getEmpWeekShift(ed.emp.id, d) }))
+        // keep only employees whose weekly shift equals the target to preserve weekly stability
+        .filter((ed: any) => ed.weekShift === shift)
+        .sort((a: any, b: any) => {
+          // priority: Off(non-request) first, then empty, then other shift; tie-breaker by lower workload
+          const rank = (ed: any) => {
+            if ( ed.cell.symbol === SPECIAL_SYMBOL.Off && ed.cell.offSource && ed.cell.offSource !== 'request') return 0;
+            if (!ed.cell.symbol) return 1;
+            return 2; // same-shift working day (rare here)
+          };
+          const ra = rank(a), rb = rank(b);
+          if (ra !== rb) return ra - rb;
+          return (empWorkload.get(a.emp.id)! - empWorkload.get(b.emp.id)!);
+        });
 
-      // helper to flip entire week assignment for an employee to target shift
+      // helper to flip entire week assignment for an employee to target shift (last-resort)
       const flipWeek = (empId: string, anyDateInWeek: Date, toShift: ShiftName) => {
         const wIdx = getWeekIndex(anyDateInWeek);
         const wDays = weeks.get(wIdx) || [];
@@ -331,18 +399,31 @@ export async function generateSchedule(opts: { year: number; month: number; useB
           const ciso = dateISO(wd);
           const c = grid.get(empId)!.get(ciso)!;
           if (c.symbol === SPECIAL_SYMBOL.Off || c.symbol === SPECIAL_SYMBOL.Vacation) continue;
-          c.symbol = symbolFor(emps.find(e=>e.id===empId)!.employment_type, toShift);
+          const empType = emps.find(e=>e.id===empId)!.employment_type;
+          c.symbol = weeklySymbol(empType, toShift, wIdx);
           c.shift = toShift;
         }
       };
 
-      for (const cand of candidates) {
+      // If no same-week-shift candidates found, fall back to flipping a full week for fairness
+      if (candidates.length === 0) {
+        const opp = empCells.filter(({ emp, cell }) => emp.allowed_shifts.includes(shift) && cell.symbol !== SPECIAL_SYMBOL.Vacation);
+        for (const cand of opp) {
+          if (need <= 0) break;
+          flipWeek(cand.emp.id, d, shift);
+          need -= 1;
+        }
+        return;
+      }
+
+      for (const cand of candidates as any) {
         if (need <= 0) break;
         const current = cand.cell;
         if (current.symbol === SPECIAL_SYMBOL.Vacation) continue;
         // Ensure weekly off max (Friday + 1) — we cannot count easily here; rely on generation step to keep <=1 extra off.
-        if (!current.symbol || current.symbol === SPECIAL_SYMBOL.Off || current.shift === shift || useBetween) {
-          current.symbol = symbolFor(cand.emp.employment_type, shift);
+        if (!current.symbol || current.symbol === SPECIAL_SYMBOL.Off || current.shift === shift) {
+          const wIdxForAssign = getWeekIndex(d);
+          current.symbol = weeklySymbol(cand.emp.employment_type, shift, wIdxForAssign);
           current.shift = shift;
         } else {
           // per-day between is disabled and candidate is on opposite shift; flip full week to preserve weekly-block rule
@@ -384,6 +465,9 @@ export async function generateSchedule(opts: { year: number; month: number; useB
         // Enforce: max one extra off per week (Friday already counted separately)
         const currentExtraOffs = getWeekExtraOffCount(cand.emp.id, d);
         if (currentExtraOffs >= 1) continue; // skip; would violate weekly off rule
+        // Respect daily OFF cap (<=2 per day, excluding Friday)
+        const isoDay = iso;
+        if (countOffOnDate(isoDay) >= 2) continue;
         cand.cell.symbol = SPECIAL_SYMBOL.Off;
         cand.cell.shift = undefined;
         cand.cell.offSource = 'trim';

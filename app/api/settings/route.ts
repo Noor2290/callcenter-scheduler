@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import supabaseServer from '@/app/lib/supabaseServer';
 
 // Persist settings as key/value text rows in `settings` table.
-// Known keys: year, month, coverageMorning, coverageEvening, useBetween
+// Known keys (new): year, month, coverageMorning, coverageEvening, useBetweenShift, betweenShiftEmployeeId
+// Legacy keys (still read): useBetween, betweenEmployeeId
 
 function rowsToObject(rows: { key: string; value: string }[]) {
   const map: Record<string, string> = {};
@@ -11,12 +12,15 @@ function rowsToObject(rows: { key: string; value: string }[]) {
 }
 
 function normalizeOut(map: Record<string, string>) {
+  const useBetweenShift = (map.useBetweenShift ?? map.useBetween) ? ((map.useBetweenShift ?? map.useBetween) === 'true') : false;
+  const betweenShiftEmployeeId = (map.betweenShiftEmployeeId ?? map.betweenEmployeeId) || undefined;
   return {
     year: map.year ? Number(map.year) : undefined,
     month: map.month ? Number(map.month) : undefined,
     coverageMorning: map.coverageMorning ? Number(map.coverageMorning) : undefined,
     coverageEvening: map.coverageEvening ? Number(map.coverageEvening) : undefined,
-    useBetween: map.useBetween ? map.useBetween === 'true' : false, // default false
+    useBetweenShift,
+    betweenShiftEmployeeId,
   };
 }
 
@@ -38,8 +42,18 @@ export async function POST(req: NextRequest) {
     // Accept partial updates; only provided keys will be upserted.
     const entries: [string, string][] = [];
 
-    const keys = ['year', 'month', 'coverageMorning', 'coverageEvening', 'useBetween'] as const;
-    for (const k of keys) {
+    // Accept new keys primarily
+    const newKeys = ['year','month','coverageMorning','coverageEvening','useBetweenShift','betweenShiftEmployeeId'] as const;
+    for (const k of newKeys) {
+      if (k in body) {
+        const v = body[k as keyof typeof body];
+        if (v === undefined || v === null || v === '') continue;
+        entries.push([k, String(v)]);
+      }
+    }
+    // Also accept legacy keys if provided (for older clients)
+    const legacyKeys = ['useBetween','betweenEmployeeId'] as const;
+    for (const k of legacyKeys) {
       if (k in body) {
         const v = body[k as keyof typeof body];
         if (v === undefined || v === null || v === '') continue;
