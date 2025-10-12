@@ -10,14 +10,14 @@ export async function POST(req: NextRequest) {
     const map = Object.fromEntries((data ?? []).map((r: any) => [r.key, r.value]));
     const year = map.year ? Number(map.year) : undefined;
     const month = map.month ? Number(map.month) : undefined;
-    const useBetween = map.useBetween ? map.useBetween === 'true' : false;
+    const useBetween = (map.useBetweenShift ?? map.useBetween) ? ((map.useBetweenShift ?? map.useBetween) === 'true') : false;
 
     let body: any = {};
     try { body = await req.json(); } catch {}
 
     const finalYear = body.year ?? year;
     const finalMonth = body.month ?? month;
-    const finalUseBetween = body.useBetween ?? useBetween;
+    const finalUseBetween = (body.useBetweenShift ?? body.useBetween) ?? useBetween;
     const finalSeed = body.seed;
 
     if (!finalYear || !finalMonth) {
