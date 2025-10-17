@@ -11,16 +11,18 @@ export async function GET() {
 
     const out: any = { year, month };
 
+    type MonthRow = { id: string; year: number; month: number };
+
     const { data: months } = await (sb as any)
       .from('months')
       .select('id,year,month')
       .eq('year', year || 0)
       .eq('month', month || 0)
       .order('id', { ascending: false });
-    const monthsArr = (months ?? []) as any[];
+    const monthsArr = (months ?? []) as MonthRow[];
     out.monthRows = monthsArr;
 
-    const monthId = monthsArr.length ? (monthsArr[0] as any).id : null;
+    const monthId = monthsArr?.[0]?.id ?? null;
     out.monthId = monthId;
 
     const { count: empCount } = await sb.from('employees').select('id', { count: 'exact', head: true });
