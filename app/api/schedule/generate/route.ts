@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generateSchedule } from '@/app/lib/scheduler';
 import supabaseServer from '@/app/lib/supabaseServer';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: NextRequest) {
   try {
+    const started = Date.now();
     const sb = supabaseServer();
     // Get current settings
     const { data } = await sb.from('settings').select('key,value');
@@ -24,9 +28,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Settings must include year and month' }, { status: 400 });
     }
 
-    const result = await generateSchedule({ year: Number(finalYear), month: Number(finalMonth), useBetween: !!finalUseBetween, seed: finalSeed });
-    return NextResponse.json(result);
+    // Server-side timeout guard (60s)
+    const timeoutMs = 60000;
+    const timeoutPromise = new Promise((_, reject) => {
+      const t = setTimeout(() => {
+        clearTimeout(t);
+        reject(new Error('Server timeout: generation exceeded 25s'));
+      }, timeoutMs);
+    });
+
+    const result = await Promise.race([
+      generateSchedule({ year: Number(finalYear), month: Number(finalMonth), useBetween: !!finalUseBetween, seed: finalSeed }),
+      timeoutPromise,
+    ]) as any;
+
+    const durationMs = Date.now() - started;
+    return NextResponse.json({ ...(result ?? {}), durationMs });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message ?? 'Unknown error' }, { status: 500 });
+    const isTimeout = /timeout/i.test(String(e?.message || ''));
+    const status = isTimeout ? 504 : 500;
+    return NextResponse.json({ error: e.message ?? 'Unknown error' }, { status });
   }
 }

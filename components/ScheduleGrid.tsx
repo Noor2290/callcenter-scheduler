@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState, useTransition } from 'react';
 import { addDays, endOfMonth, format, startOfMonth } from 'date-fns';
 
 type Employee = { id: string; name: string; code: string | null };
@@ -17,13 +17,71 @@ function toISO(y: number, m: number, d: number) {
   return format(new Date(y, m - 1, d), 'yyyy-MM-dd');
 }
 
+// Memoized row to avoid re-rendering all rows on each cell edit
+const ScheduleRow = memo(function ScheduleRow({
+  emp,
+  row,
+  headerDays,
+  year,
+  month,
+  onSetCell,
+  readOnly,
+}: {
+  emp: Employee;
+  row: Record<string, string>;
+  headerDays: string[];
+  year: number;
+  month: number;
+  onSetCell: (dateISO: string, value: string) => void;
+  readOnly: boolean;
+}) {
+  return (
+    <tr className="border-t">
+      <td className="p-2 whitespace-nowrap text-left">{emp.name}</td>
+      <td className="p-2 text-center">{emp.code || '-'}</td>
+      {headerDays.map((dStr, idx) => {
+        const iso = toISO(year, month, Number(dStr));
+        const val = row?.[iso] ?? '';
+        const isM = typeof val === 'string' && val.startsWith('M');
+        const isE = typeof val === 'string' && val.startsWith('E');
+        const isB = val === 'B' || val === 'BT' || val === 'Between';
+        const color = val === 'O'
+          ? 'bg-gray-200 text-gray-800'
+          : val === 'V'
+          ? 'bg-red-100 text-red-800'
+          : isM
+          ? 'bg-yellow-100 text-yellow-800'
+          : isE
+          ? 'bg-blue-100 text-blue-800'
+          : isB
+          ? 'bg-teal-100 text-teal-800'
+          : '';
+        return (
+          <td key={idx} className={"p-0 text-center " + color}>
+            <input
+              className="w-16 text-center p-1 border-0 focus:ring-0 bg-transparent"
+              value={val}
+              readOnly={readOnly}
+              onChange={(e) => onSetCell(iso, e.target.value.toUpperCase())}
+            />
+          </td>
+        );
+      })}
+    </tr>
+  );
+});
+
 export default function ScheduleGrid() {
   const [settings, setSettings] = useState<{ year?: number; month?: number }>({});
   const [data, setData] = useState<MonthData | null>(null);
   const [grid, setGrid] = useState<Record<string, Record<string, string>>>({}); // empId -> dateISO -> symbol (local edits only)
   const [gridOriginal, setGridOriginal] = useState<Record<string, Record<string, string>>>({}); // snapshot from server
   const [isPending, startTransition] = useTransition();
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [autoGenTried, setAutoGenTried] = useState(false);
 
   // load settings for year/month
   useEffect(() => {
@@ -60,19 +118,80 @@ export default function ScheduleGrid() {
 
   useEffect(() => { loadMonth(); }, [settings.year, settings.month]);
 
-  function generate() {
+  // Run auto-generate after data loads to avoid nested transitions
+  useEffect(() => {
+    (async () => {
+      if (!data || autoGenTried) return;
+      const empty = (data.assignments?.length || 0) === 0;
+      try {
+        const sres = await fetch('/api/settings');
+        const s = await sres.json();
+        const key = `approved:${settings.year}-${String(settings.month).padStart(2,'0')}`;
+        const approved = (s?.[key] ?? s?.settings?.[key] ?? s?.items?.find?.((x: any)=>x.key===key)?.value) === 'true';
+        if (empty || !approved) {
+          setAutoGenTried(true);
+          generate(`${settings.year}-${settings.month}-auto`);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+  }, [data, autoGenTried, settings.year, settings.month]);
+
+  function generate(seedOverride?: string) {
     if (!settings.year || !settings.month) { setMsg('Set Year/Month in Settings first'); return; }
     setMsg(null);
     startTransition(async () => {
-      const res = await fetch('/api/schedule/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seed: `${Date.now()}-${Math.random()}` })
+      setIsGenerating(true);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 65000);
+      try {
+        const res = await fetch('/api/schedule/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            year: settings.year,
+            month: settings.month,
+            seed: seedOverride ?? `${Date.now()}-${Math.random()}`,
+          }),
+          signal: controller.signal,
+        });
+        let json: any = {};
+        try { json = await res.json(); } catch {}
+        if (!res.ok) { setMsg(json?.error || 'فشل التوليد'); return; }
+        loadMonth();
+      } catch (e: any) {
+        if (e?.name === 'AbortError') {
+          setMsg('الخادم يستغرق وقتاً طويلاً (60 ثانية). تحقق من الإعدادات والاتصال ثم حاول مجدداً.');
+        } else {
+          setMsg(e?.message || 'تعذر الاتصال بالخادم');
+        }
+      } finally {
+        clearTimeout(timer);
+        setIsGenerating(false);
+      }
+    });
+  }
+
+  const busy = isPending || isGenerating || isSaving;
+
+  async function approveMonth() {
+    if (!settings.year || !settings.month) { setMsg('Set Year/Month in Settings first'); return; }
+    setMsg(null);
+    setIsApproving(true);
+    try {
+      const res = await fetch('/api/schedule/approve', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ year: settings.year, month: settings.month }),
       });
       const json = await res.json();
-      if (!res.ok) { setMsg(json.error || 'Failed to generate'); return; }
-      loadMonth();
-    });
+      if (!res.ok) { setMsg(json.error || 'فشل اعتماد الشهر'); return; }
+      setMsg('تم اعتماد الشهر');
+    } catch (e: any) {
+      setMsg(e?.message || 'تعذر الاتصال بالخادم');
+    } finally {
+      setIsApproving(false);
+    }
   }
 
   function exportExcel() {
@@ -98,20 +217,27 @@ export default function ScheduleGrid() {
     if (changes.length === 0) { setMsg('لا توجد تغييرات للحفظ'); return; }
     setMsg(null);
     startTransition(async () => {
-      const res = await fetch('/api/schedule/save', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ year: settings.year, month: settings.month, changes }),
-      });
-      const json = await res.json();
-      if (!res.ok) { setMsg(json.error || 'فشل الحفظ'); return; }
-      setMsg('تم الحفظ');
-      loadMonth();
+      setIsSaving(true);
+      try {
+        const res = await fetch('/api/schedule/save', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ year: settings.year, month: settings.month, changes }),
+        });
+        const json = await res.json();
+        if (!res.ok) { setMsg(json.error || 'فشل الحفظ'); return; }
+        setMsg('تم الحفظ');
+        loadMonth();
+      } catch (e: any) {
+        setMsg(e?.message || 'تعذر الحفظ');
+      } finally {
+        setIsSaving(false);
+      }
     });
   }
 
-  function setCell(empId: string, dateISO: string, value: string) {
+  const setCell = useCallback((empId: string, dateISO: string, value: string) => {
     setGrid((g) => ({ ...g, [empId]: { ...(g[empId] || {}), [dateISO]: value } }));
-  }
+  }, []);
 
   const headerDays = useMemo(() => {
     if (!settings.year || !settings.month) return [] as string[];
@@ -135,8 +261,9 @@ export default function ScheduleGrid() {
         </div>
       )}
       <div className="flex gap-2">
-        <button onClick={generate} className="px-4 py-2 bg-indigo-600 text-white rounded disabled:opacity-60" disabled={isPending}>توليد الجدول</button>
-        <button onClick={saveChanges} className="px-4 py-2 bg-teal-600 text-white rounded disabled:opacity-60" disabled={isPending}>حفظ التعديلات</button>
+        <button onClick={() => generate()} className="px-4 py-2 bg-indigo-600 text-white rounded disabled:opacity-60" disabled={isGenerating}>توليد الجدول</button>
+        <button onClick={saveChanges} className="px-4 py-2 bg-teal-600 text-white rounded disabled:opacity-60" disabled={isSaving}>حفظ التعديلات</button>
+        <button onClick={approveMonth} className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-60" disabled={isApproving}>اعتماد الشهر</button>
         <button onClick={exportExcel} className="px-4 py-2 bg-emerald-600 text-white rounded">تصدير Excel</button>
       </div>
       {msg && <div className="text-sm text-red-600">{msg}</div>}
@@ -157,24 +284,16 @@ export default function ScheduleGrid() {
             </thead>
             <tbody>
               {data.employees.map((emp) => (
-                <tr key={emp.id} className="border-t">
-                  <td className="p-2 whitespace-nowrap text-left">{emp.name}</td>
-                  <td className="p-2 text-center">{emp.code || '-'}</td>
-                  {headerDays.map((dStr, idx) => {
-                    const iso = toISO(data.month.year, data.month.month, Number(dStr));
-                    const val = grid[emp.id]?.[iso] ?? '';
-                    const color = val === 'O' ? 'bg-gray-200' : val === 'V' ? 'bg-orange-200' : '';
-                    return (
-                      <td key={idx} className={"p-0 text-center " + color}>
-                        <input
-                          className="w-16 text-center p-1 border-0 focus:ring-0 bg-transparent"
-                          value={val}
-                          onChange={(e)=>setCell(emp.id, iso, e.target.value.toUpperCase())}
-                        />
-                      </td>
-                    );
-                  })}
-                </tr>
+                <ScheduleRow
+                  key={emp.id}
+                  emp={emp}
+                  row={grid[emp.id] || {}}
+                  headerDays={headerDays}
+                  year={data.month.year}
+                  month={data.month.month}
+                  onSetCell={(iso, v) => setCell(emp.id, iso, v)}
+                  readOnly={busy}
+                />
               ))}
             </tbody>
           </table>

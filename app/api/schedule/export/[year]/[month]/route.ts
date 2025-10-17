@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import supabaseServer from '@/app/lib/supabaseServer';
+import { generateSchedule } from '@/app/lib/scheduler';
 import ExcelJS from 'exceljs';
 
 export const runtime = 'nodejs';
@@ -11,6 +12,7 @@ export async function GET(
 ) {
   const { year, month } = await context.params;
   const debug = _req.nextUrl?.searchParams?.get('debug') === '1';
+  const regen = _req.nextUrl?.searchParams?.get('regen') === '1';
 
   try {
     const yearNum = Number(year);
@@ -45,13 +47,32 @@ export async function GET(
     const betweenEmployeeId = (settingsMap.betweenShiftEmployeeId ?? settingsMap.betweenEmployeeId) || undefined;
 
     // 📅 جلب التوزيعات
-    const { data: assigns = [], error: asgErr } = monthRow
+    let { data: assigns = [], error: asgErr } = monthRow
       ? await sb
           .from('assignments')
           .select('employee_id, date, symbol')
           .eq('month_id', monthRow.id)
       : ({ data: [], error: null } as any);
     if (asgErr) throw asgErr;
+
+    // Auto-generate when requested or when no assignments exist yet
+    if (regen || assigns.length === 0) {
+      await generateSchedule({ year: yearNum, month: monthNum, useBetween });
+      const { data: monthRow2 } = await sb
+        .from('months')
+        .select('id, year, month')
+        .eq('year', yearNum)
+        .eq('month', monthNum)
+        .maybeSingle();
+      const monthId = (monthRow2 ?? monthRow)?.id;
+      if (monthId) {
+        const r = await sb
+          .from('assignments')
+          .select('employee_id, date, symbol')
+          .eq('month_id', monthId);
+        assigns = (r.data ?? []) as any;
+      }
+    }
 
     // 📗 إنشاء ملف Excel جديد
     const wb = new ExcelJS.Workbook();
@@ -77,13 +98,23 @@ export async function GET(
     
 
     // 🎨 أنماط الألوان
+    // Medium-soft palette aligned with UI (Tailwind 100-ish)
+    // Morning (yellow-100): #FEF3C7 -> FFFE F3C7
+    // Evening (blue-100):   #DBEAFE -> FFDB EAFE
+    // Between (teal-100):   #CCFBF1 -> FFCC FBF1
+    // Off (gray-200):       #E5E7EB -> FFE5 E7EB
+    // Vacation (amber-100): #FEF3C7 -> FFFE F3C7
     const colors: Record<string, string> = {
-      MA1: 'FFFCE699', MA2: 'FFFCE699', MA4: 'FFFCE699',
-      EA1: 'FFBDD7EE', E2: 'FFBDD7EE', E5: 'FFBDD7EE',
-      PT4: 'FFD9D9D9', PT5: 'FFD9D9D9',
-      V: 'FF92D050',
-      O: 'FFFFC7CE',
-      B: 'FFE6E0F8', // Between Shift
+      // Morning codes
+      MA1: 'FFFEF3C7', MA2: 'FFFEF3C7', MA4: 'FFFEF3C7', M2: 'FFFEF3C7',
+      // Evening codes
+      EA1: 'FFDBEAFE', E2: 'FFDBEAFE', E5: 'FFDBEAFE',
+      // Part-time (neutral light gray)
+      PT4: 'FFE5E7EB', PT5: 'FFE5E7EB',
+      // Special days
+      V: 'FFFEE2E2',
+      O: 'FFE5E7EB',
+      B: 'FFCCFBF1', // Between Shift
     };
 
     const borderAll = {
@@ -241,21 +272,21 @@ export async function GET(
     ws.addRow([]);
     // تعريف الجداول الثلاثة كجداول ذات عمودين مع حدود كاملة
     const leftBlock: Array<[string, string, string?]> = [
-      ['MA1', '07:00AM - 04:00PM', 'FFFCE699'],
-      ['MA2', '08:00AM - 05:00PM', 'FFFCE699'],
-      ['MA4', '11:00AM - 08:00PM', 'FFFCE699'],
-      ['EA1', '02:00PM - 11:00PM', 'FFBDD7EE'],
-      ['V',   'Vacation',          'FF92D050'],
-      ['O',   'OFF',               'FFFFC7CE'],
+      ['MA1', '07:00AM - 04:00PM', 'FFFEF3C7'],
+      ['MA2', '08:00AM - 05:00PM', 'FFFEF3C7'],
+      ['MA4', '11:00AM - 08:00PM', 'FFFEF3C7'],
+      ['EA1', '02:00PM - 11:00PM', 'FFDBEAFE'],
+      ['V',   'Vacation',          'FFFEE2E2'],
+      ['O',   'OFF',               'FFE5E7EB'],
     ];
     const midBlock: Array<[string, string, string?]> = [
-      ['PT4', '08:00AM - 01:00PM', 'FFD9D9D9'],
-      ['PT5', '05:00PM - 10:00PM', 'FFD9D9D9'],
+      ['PT4', '08:00AM - 01:00PM', 'FFE5E7EB'],
+      ['PT5', '05:00PM - 10:00PM', 'FFE5E7EB'],
     ];
     const rightBlock: Array<[string, string, string?]> = [
-      ['M2', '08:00AM - 04:00PM', 'FFFCE699'],
-      ['E5', '12:00PM - 08:00PM', 'FFBDD7EE'],
-      ['E2', '02:00PM - 10:00PM', 'FFBDD7EE'],
+      ['M2', '08:00AM - 04:00PM', 'FFFEF3C7'],
+      ['E5', '12:00PM - 08:00PM', 'FFDBEAFE'],
+      ['E2', '02:00PM - 10:00PM', 'FFDBEAFE'],
     ];
 
     // ⚙️ عرض المستطيلات وطريقة التمركز

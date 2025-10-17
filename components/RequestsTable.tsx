@@ -8,7 +8,9 @@ type Employee = { id: string; name: string };
 type RequestItem = {
   id?: string;
   employee_id: string;
-  date: string; // YYYY-MM-DD
+  date?: string; // YYYY-MM-DD (single day)
+  start?: string; // YYYY-MM-DD (range start for Vacation)
+  end?: string;   // YYYY-MM-DD (range end for Vacation)
   type: 'Vacation' | 'OffRequest';
 };
 
@@ -19,7 +21,7 @@ export default function RequestsTable() {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const [form, setForm] = useState<RequestItem>({ employee_id: '', date: '', type: 'Vacation' });
+  const [form, setForm] = useState<RequestItem>({ employee_id: '', date: '', start: '', end: '', type: 'Vacation' });
 
   useEffect(() => {
     let mounted = true;
@@ -40,23 +42,37 @@ export default function RequestsTable() {
   function onAdd(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!form.employee_id || !form.date || !form.type) { setError('All fields required'); return; }
+    if (!form.employee_id || !form.type) { setError('All fields required'); return; }
+    if (form.type === 'OffRequest' && !form.date) { setError('Date is required for OffRequest'); return; }
+    if (form.type === 'Vacation') {
+      const hasRange = !!form.start && !!form.end;
+      const hasSingle = !!form.date;
+      if (!hasRange && !hasSingle) { setError('Provide date or start/end for Vacation'); return; }
+    }
     startTransition(async () => {
+      const payload: any = { employee_id: form.employee_id, type: form.type };
+      if (form.type === 'Vacation') {
+        if (form.start && form.end) { payload.start = form.start; payload.end = form.end; }
+        else if (form.date) { payload.date = form.date; }
+      } else if (form.type === 'OffRequest') {
+        payload.date = form.date;
+      }
+
       const res = await fetch('/api/requests/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: [form] }),
+        body: JSON.stringify({ items: [payload] }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'Failed to save'); return; }
       const res2 = await fetch('/api/requests');
       const json2 = await res2.json();
       if (res2.ok) setItems(json2.items || []);
-      setForm({ employee_id: '', date: '', type: 'Vacation' });
+      setForm({ employee_id: '', date: '', start: '', end: '', type: 'Vacation' });
     });
   }
 
-  const itemsSorted = useMemo(() => items.slice().sort((a,b) => a.date.localeCompare(b.date)), [items]);
+  const itemsSorted = useMemo(() => items.slice().sort((a,b) => (a.date || '').localeCompare(b.date || '')), [items]);
 
   return (
     <div className="space-y-6">
@@ -117,10 +133,23 @@ export default function RequestsTable() {
               {employees.map((e)=> <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
           </label>
-          <label className="flex flex-col text-sm">
-            <span className="mb-1">Date</span>
-            <input type="date" className="border rounded p-2" value={form.date} onChange={(e)=>setForm((f)=>({ ...f, date: e.target.value }))} />
-          </label>
+          {form.type === 'OffRequest' ? (
+            <label className="flex flex-col text-sm">
+              <span className="mb-1">Date</span>
+              <input type="date" className="border rounded p-2" value={form.date || ''} onChange={(e)=>setForm((f)=>({ ...f, date: e.target.value }))} />
+            </label>
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              <label className="flex flex-col text-sm">
+                <span className="mb-1">Start</span>
+                <input type="date" className="border rounded p-2" value={form.start || ''} onChange={(e)=>setForm((f)=>({ ...f, start: e.target.value }))} />
+              </label>
+              <label className="flex flex-col text-sm">
+                <span className="mb-1">End</span>
+                <input type="date" className="border rounded p-2" value={form.end || ''} onChange={(e)=>setForm((f)=>({ ...f, end: e.target.value }))} />
+              </label>
+            </div>
+          )}
           <label className="flex flex-col text-sm">
             <span className="mb-1">Type</span>
             <select className="border rounded p-2" value={form.type} onChange={(e)=>setForm((f)=>({ ...f, type: e.target.value as RequestItem['type'] }))}>
