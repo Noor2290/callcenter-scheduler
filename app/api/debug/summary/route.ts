@@ -5,7 +5,7 @@ export async function GET() {
   try {
     const sb = supabaseServer();
 
-    // جلب الإعدادات
+    // جلب الإعدادات العامة
     const { data: settings } = await sb.from('settings').select('key,value');
     const map = Object.fromEntries((settings ?? []).map((r: any) => [r.key, r.value]));
     const year = map.year ? Number(map.year) : undefined;
@@ -28,12 +28,12 @@ export async function GET() {
       .eq('month', month || 0)
       .order('id', { ascending: false });
 
-    // ✅ هنا نجبر TypeScript على فهم النوع
+    // هنا نجبر TypeScript على فهم النوع
     const months: Month[] = (monthsRaw as Month[]) || [];
 
-    // الآن لن يعطي خطأ
-    out.monthRows = months;
+    // استخراج أول شهر (إن وجد)
     const monthId: string | null = months.length > 0 ? months[0].id : null;
+    out.monthRows = months;
     out.monthId = monthId;
 
     // عدد الموظفين
@@ -53,7 +53,9 @@ export async function GET() {
       out.assignments = 0;
     }
 
+    // إرجاع النتيجة
     return NextResponse.json(out);
+
   } catch (e: any) {
     console.error('Error in /api/debug/summary:', e);
     return NextResponse.json({ error: e.message ?? 'Unknown error' }, { status: 500 });
