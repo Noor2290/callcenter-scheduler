@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import supabaseServer from '@/app/lib/supabaseServer';
 
+type Employee = {
+  id: string;
+  name?: string;
+  code?: string;
+  employment_type?: string;
+  allowed_shifts?: string[];
+  preferred_days_off?: string[];
+};
+
 export async function DELETE(_req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params;
@@ -24,7 +33,10 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     }
     if (Object.keys(updates).length === 0) return NextResponse.json({ ok: true });
     const sb = supabaseServer();
-    const { error } = await sb.from('employees').update(updates).eq('id', id);
+    const { error } = await sb
+      .from('employees')
+      .update(updates as Partial<Employee>)
+      .eq('id', id);
     if (error) throw error;
     return NextResponse.json({ ok: true });
   } catch (e: any) {
