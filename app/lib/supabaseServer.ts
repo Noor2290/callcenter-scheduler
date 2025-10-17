@@ -1,13 +1,14 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/types/database.types';
 
 // Server-side Supabase client (singleton). Prefer service role if provided, otherwise fallback to anon.
 const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL) as string;
 const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE) as string | undefined;
 const anonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY) as string | undefined;
 
-let _client: ReturnType<typeof createClient> | null = null;
+let _client: SupabaseClient<Database> | null = null;
 
-export function supabaseServer() {
+export function supabaseServer(): SupabaseClient<Database> {
   if (_client) return _client;
   const key = serviceKey ?? anonKey ?? '';
   const missing: string[] = [];
@@ -16,7 +17,7 @@ export function supabaseServer() {
   if (missing.length) {
     throw new Error(`Supabase env not set: missing ${missing.join(', ')}`);
   }
-  _client = createClient(supabaseUrl, key, {
+  _client = createClient<Database>(supabaseUrl, key, {
     auth: { persistSession: false },
     global: { headers: { 'X-Client-Info': 'scheduler-server' } },
   });

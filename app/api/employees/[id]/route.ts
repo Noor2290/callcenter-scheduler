@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import supabaseServer from '@/app/lib/supabaseServer';
+import type { Database } from '@/types/database.types';
 
 type Employee = {
   id: string;
@@ -10,10 +11,8 @@ type Employee = {
   preferred_days_off?: string[];
 };
 
-// Strongly-typed partial update payload
-type EmployeeUpdates = Partial<Pick<Employee,
-  'name' | 'code' | 'employment_type' | 'allowed_shifts' | 'preferred_days_off'
->>;
+// Use Update shape from generated Database types
+type EmployeeUpdates = Database['public']['Tables']['employees']['Update'];
 
 export async function DELETE(_req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
@@ -38,7 +37,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     }
     if (Object.keys(updates).length === 0) return NextResponse.json({ ok: true });
     const sb = supabaseServer();
-    const { error } = await (sb as any)
+    const { error } = await sb
       .from('employees')
       .update(updates)
       .eq('id', id);
