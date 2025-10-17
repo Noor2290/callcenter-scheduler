@@ -12,22 +12,22 @@ export async function GET() {
 
     const out: any = { year, month };
 
-    // ✅ تعريف نوع البيانات
+    // ✅ تعريف نوع الصفوف
     type MonthRow = { id: string; year: number; month: number };
 
-    // ✅ تحديد نوع النتيجة بشكل صريح
+    // ✅ تحديد نوع البيانات المسترجعة من Supabase
     const { data: months } = await sb
       .from('months')
       .select('id,year,month')
       .eq('year', year || 0)
       .eq('month', month || 0)
       .order('id', { ascending: false })
-      .returns<MonthRow[]>(); // 👈 هذا هو المفتاح
+      .returns<MonthRow[]>(); // هذا هو المفتاح لتصحيح الخطأ
 
-    // ✅ ضمان أن النتيجة مصفوفة من MonthRow
     const monthsArr = (months ?? []) as MonthRow[];
     out.monthRows = monthsArr;
 
+    // ✅ استخدم monthsArr بدلاً من months
     const monthId = monthsArr?.[0]?.id ?? null;
     out.monthId = monthId;
 
