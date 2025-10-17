@@ -4,6 +4,7 @@ import supabaseServer from '@/app/lib/supabaseServer';
 export async function GET() {
   try {
     const sb = supabaseServer();
+
     const { data: settings } = await sb.from('settings').select('key,value');
     const map = Object.fromEntries((settings ?? []).map((r: any) => [r.key, r.value]));
     const year = map.year ? Number(map.year) : undefined;
@@ -11,14 +12,19 @@ export async function GET() {
 
     const out: any = { year, month };
 
+    // ✅ تعريف نوع البيانات
     type MonthRow = { id: string; year: number; month: number };
 
-    const { data: months } = await (sb as any)
+    // ✅ تحديد نوع النتيجة بشكل صريح
+    const { data: months } = await sb
       .from('months')
       .select('id,year,month')
       .eq('year', year || 0)
       .eq('month', month || 0)
-      .order('id', { ascending: false });
+      .order('id', { ascending: false })
+      .returns<MonthRow[]>(); // 👈 هذا هو المفتاح
+
+    // ✅ ضمان أن النتيجة مصفوفة من MonthRow
     const monthsArr = (months ?? []) as MonthRow[];
     out.monthRows = monthsArr;
 
