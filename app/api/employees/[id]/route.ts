@@ -10,6 +10,11 @@ type Employee = {
   preferred_days_off?: string[];
 };
 
+// Strongly-typed partial update payload
+type EmployeeUpdates = Partial<Pick<Employee,
+  'name' | 'code' | 'employment_type' | 'allowed_shifts' | 'preferred_days_off'
+>>;
+
 export async function DELETE(_req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params;
@@ -26,16 +31,16 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
   try {
     const { id } = await context.params;
     const body = await req.json();
-    const updates: Record<string, any> = {};
+    const updates: EmployeeUpdates = {};
     const fields = ['name', 'code', 'employment_type', 'allowed_shifts', 'preferred_days_off'] as const;
     for (const f of fields) {
       if (f in body && body[f] !== undefined) updates[f] = body[f];
     }
     if (Object.keys(updates).length === 0) return NextResponse.json({ ok: true });
     const sb = supabaseServer();
-    const { error } = await sb
+    const { error } = await (sb as any)
       .from('employees')
-      .update(updates as Partial<Employee>)
+      .update(updates)
       .eq('id', id);
     if (error) throw error;
     return NextResponse.json({ ok: true });
