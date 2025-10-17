@@ -156,7 +156,10 @@ export async function generateSchedule(opts: {
       : Boolean(settingsUseBetweenRaw);
 
   const betweenEmployeeId: string | undefined =
-    settingsMap.betweenEmployeeId || settingsMap.betweenEmpId || undefined;
+    settingsMap.betweenShiftEmployeeId || // new key from SettingsForm/API
+    settingsMap.betweenEmployeeId || // legacy key
+    settingsMap.betweenEmpId || // older legacy alias
+    undefined;
 
   const BETWEEN_SYMBOL: string = (SPECIAL_SYMBOL as any).Between ?? 'M4A';
   tick('settings', t);

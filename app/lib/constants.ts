@@ -16,4 +16,5 @@ export const SHIFT_SYMBOL: Record<EmploymentType, Record<ShiftName, string>> = {
 export const SPECIAL_SYMBOL = {
   Off: 'O',
   Vacation: 'V',
+  Between: 'B',
 } as const;
