@@ -625,33 +625,6 @@ export async function generateSchedule(opts: {
       });
 
       const offReqDate = workDays.find((d) => {
-        const iso = dateISO(d);
-        return reqMap.get(`${e.id}|${iso}`)?.type === 'OffRequest';
-      });
-
-      // If this week is a continuation and OFF was already given in prev month's part, skip giving another OFF
-      if (isContinuingWeek && prevLastWeekHadOff.get(e.id)) {
-        continue;
-      }
-
-      // Apply OffRequest if any (always honored even if it exceeds daily cap)
-      if (offReqDate) {
-        const iso = dateISO(offReqDate);
-        const cell = grid.get(e.id)!.get(iso)!;
-        cell.symbol = SPECIAL_SYMBOL.Off;
-        cell.shift = undefined;
-        weeklyOff.set(e.id, iso);
-        // do NOT add another random off in same week
-        continue;
-      }
-
-      // Even if there is Vacation in the week, we still give exactly one OFF per week
-
-      // Otherwise, choose OFF day smartly to spread and balance (but do NOT enforce the daily cap)
-      const weeklyShift = assignWeek.get(e.id); // Morning/Evening for this week
-      const targetForShift = weeklyShift === 'Morning' ? coverageMorning : coverageEvening;
-
-      // Count function mimicking Phase 2 counts
       const countShiftOn = (iso: string, shift: ShiftName) => {
         return emps.filter((emp) => {
           if (isBetweenEmp(emp.id)) return false;

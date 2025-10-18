@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import supabaseServer from '@/app/lib/supabaseServer';
 
 // Persist settings as key/value text rows in `settings` table.
-// Known keys (new): year, month, coverageMorning, coverageEvening, useBetweenShift, betweenShiftEmployeeId
+// Known keys (new): year, month, coverageMorning, coverageEvening, useBetweenShift, betweenShiftEmployeeId, saturdayOffEmployeeId
 // Legacy keys (still read): useBetween, betweenEmployeeId
 
 function rowsToObject(rows: { key: string; value: string }[]) {
@@ -21,6 +21,7 @@ function normalizeOut(map: Record<string, string>) {
     coverageEvening: map.coverageEvening ? Number(map.coverageEvening) : undefined,
     useBetweenShift,
     betweenShiftEmployeeId,
+    saturdayOffEmployeeId: map.saturdayOffEmployeeId || undefined,
   };
 }
 
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
     const entries: [string, string][] = [];
 
     // Accept new keys primarily
-    const newKeys = ['year','month','coverageMorning','coverageEvening','useBetweenShift','betweenShiftEmployeeId'] as const;
+    const newKeys = ['year','month','coverageMorning','coverageEvening','useBetweenShift','betweenShiftEmployeeId','saturdayOffEmployeeId'] as const;
     for (const k of newKeys) {
       if (k in body) {
         const v = body[k as keyof typeof body];
