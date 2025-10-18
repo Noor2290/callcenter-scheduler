@@ -615,16 +615,46 @@ export async function generateSchedule(opts: {
 
     // ======= Weekly OFF rule:
     // - Exactly one OFF per employee per week (random day) unless:
-    //    * She has OffRequest in this week -> that day is the OFF; no extra OFF generated.
-    //    * She has any Vacation day in this week -> no extra OFF this week.
-    // - Cap: max 2 OFFs total per day (excluding Vacation).
+    //    * OffRequest exists in this week -> that day is OFF; no extra OFF generated.
+    //    * Any Vacation day in this week -> still give one OFF (unless OffRequest used it).
+    // - Special policy: Saturday OFF is reserved ONLY for the designated employee.
+    // - Cap preference: prefer days with fewer OFFs, but do not hard-block if none available.
     for (const e of emps) {
       const anyVacationThisWeek = workDays.some((d) => {
         const iso = dateISO(d);
         return reqMap.get(`${e.id}|${iso}`)?.type === 'Vacation';
       });
 
+      // OffRequest has priority
       const offReqDate = workDays.find((d) => {
+        const iso = dateISO(d);
+        return reqMap.get(`${e.id}|${iso}`)?.type === 'OffRequest';
+      });
+      if (offReqDate) {
+        const iso = dateISO(offReqDate);
+        const cell = grid.get(e.id)!.get(iso)!;
+        cell.symbol = SPECIAL_SYMBOL.Off;
+        cell.shift = undefined;
+        weeklyOff.set(e.id, iso);
+        continue;
+      }
+
+      // Fixed Saturday OFF for the designated employee only
+      if (saturdayOffEmpIdEffective && e.id === saturdayOffEmpIdEffective) {
+        const sat = wDaysFull.find((d) => isSaturday(d));
+        if (sat) {
+          const iso = dateISO(sat);
+          const cell = grid.get(e.id)!.get(iso)!;
+          cell.symbol = SPECIAL_SYMBOL.Off;
+          cell.shift = undefined;
+          weeklyOff.set(e.id, iso);
+          continue;
+        }
+      }
+
+      // Helper to count active shift (excluding Off/Vacation and Between)
+      const weeklyShift = assignWeek.get(e.id)!; // Morning/Evening for this week
+      const targetForShift = weeklyShift === 'Morning' ? coverageMorning : coverageEvening;
       const countShiftOn = (iso: string, shift: ShiftName) => {
         return emps.filter((emp) => {
           if (isBetweenEmp(emp.id)) return false;
@@ -634,24 +664,25 @@ export async function generateSchedule(opts: {
         }).length;
       };
 
+      // Build candidate OFF days
       const candidates = workDays
         .filter((d) => {
           const iso = dateISO(d);
           const c = grid.get(e.id)!.get(iso)!;
           if (c.symbol === SPECIAL_SYMBOL.Vacation) return false;
-          if (isProtected(e.id, iso)) return false; // avoid Off over an already protected day
+          if (isProtected(e.id, iso)) return false; // avoid OFF over protected day
+          // Exclude Saturday for everyone except the designated employee
+          if (!(saturdayOffEmpIdEffective && e.id === saturdayOffEmpIdEffective) && isSaturday(d)) return false;
           return true;
         })
         .map((d, i) => {
           const iso = dateISO(d);
-          const current = countShiftOn(iso, weeklyShift!);
+          const current = countShiftOn(iso, weeklyShift);
           const margin = current - Number(targetForShift || 0);
           const offCount = countOffOnDate(iso);
           const preferred = offCount < 2; // prefer days still under the soft cap
-          // Higher margin means safer to take OFF on this day
           return { d, iso, margin, offCount, preferred, r: rng(`wk-off-bal-${w}-${e.id}-${i}`) };
         })
-        // Prefer: under-cap days first, then higher margin, then fewer OFF, then RNG
         .sort((a, b) => {
           if (a.preferred !== b.preferred) return a.preferred ? -1 : 1;
           if (b.margin !== a.margin) return b.margin - a.margin;
@@ -660,7 +691,7 @@ export async function generateSchedule(opts: {
         })
         .map((x) => x.d);
 
-      // Pick the best candidate even if it exceeds the daily OFF cap (to guarantee OFF weekly)
+      // Pick the best candidate if any
       if (candidates.length > 0) {
         const iso = dateISO(candidates[0]);
         const cell = grid.get(e.id)!.get(iso)!;

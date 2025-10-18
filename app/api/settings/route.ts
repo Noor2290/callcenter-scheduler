@@ -5,9 +5,9 @@ import supabaseServer from '@/app/lib/supabaseServer';
 // Known keys (new): year, month, coverageMorning, coverageEvening, useBetweenShift, betweenShiftEmployeeId, saturdayOffEmployeeId
 // Legacy keys (still read): useBetween, betweenEmployeeId
 
-function rowsToObject(rows: { key: string; value: string }[]) {
+function rowsToObject(rows: { key: string; value: string | null }[]) {
   const map: Record<string, string> = {};
-  for (const r of rows) map[r.key] = r.value;
+  for (const r of rows) map[r.key] = r.value ?? '';
   return map;
 }
 
