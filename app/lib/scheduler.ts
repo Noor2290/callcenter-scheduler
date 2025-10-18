@@ -161,6 +161,16 @@ export async function generateSchedule(opts: {
     settingsMap.betweenEmpId || // older legacy alias
     undefined;
 
+  // Optional special OFF policy: force Saturday OFF for a specific employee
+  const saturdayOffEmployeeId: string | undefined =
+    settingsMap.saturdayOffEmployeeId || undefined;
+
+  // Resolve effective Saturday-OFF employee id (by id setting or by name fallback 'Marwa/مروة')
+  const saturdayOffEmpIdEffective: string | undefined =
+    saturdayOffEmployeeId ||
+    emps.find((e) => /marwa|مروة/i.test(e.name))?.id ||
+    undefined;
+
   const BETWEEN_SYMBOL: string = (SPECIAL_SYMBOL as any).Between ?? 'M4A';
   tick('settings', t);
 
