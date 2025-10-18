@@ -316,10 +316,11 @@ export async function generateSchedule(opts: {
     // Exclude Between globally; we'll refine per-week pool below
     const activeEmps = emps.filter((e) => !isBetweenEmp(e.id));
 
-    // Weekly effective targets (exclude Between) — count Between in total
+    // Weekly effective targets
+    // Between is an independent shift and does NOT reduce Evening coverage
     const betweenCount = useBetweenEffective && betweenEmployeeId ? 1 : 0;
     const desiredM = Math.max(0, targetM);
-    const desiredEBase = Math.max(0, targetE - betweenCount); // e.g., 4/6 with 1 Between -> 4/5
+    const desiredEBase = Math.max(0, targetE);
 
     // Build a per-week active pool: exclude employees who are on Vacation for all workDays
     const isFullVacationWeek = (empId: string) => {
@@ -340,7 +341,7 @@ export async function generateSchedule(opts: {
       if (allowedMorningCount < desiredM) reasons.push(`allowedMorning=${allowedMorningCount} < desiredM=${desiredM} (STRICT overrides if needed)`);
       if (allowedEveningCount < desiredEBase) reasons.push(`allowedEvening=${allowedEveningCount} < desiredEBase=${desiredEBase} (STRICT overrides if needed)`);
       console.log(`[Week ${w}] targets adjusted:`, {
-        requested: { morning: desiredM, evening: desiredEBase + betweenCount },
+        requested: { morning: desiredM, evening: desiredEBase },
         betweenCount,
         allowed: { morning: allowedMorningCount, evening: allowedEveningCount },
         capacity: weekActiveEmps.length,
