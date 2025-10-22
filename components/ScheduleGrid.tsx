@@ -279,7 +279,8 @@ export default function ScheduleGrid() {
               const res = await fetch('/api/schedule/import', { method: 'POST', body: fd });
               const json = await res.json();
               if (!res.ok) { setMsg(json.error || 'فشل الاستيراد'); return; }
-              setMsg('تم الاستيراد' + (json.nextGenerated ? ' وتم توليد الشهر التالي' : ''));
+              const ym = (json.year && json.month) ? ` شهر ${json.year}-${String(json.month).padStart(2,'0')}` : '';
+              setMsg(`تم استيراد${ym}` + (json.nextGenerated ? ' وتم توليد الشهر التالي تلقائياً' : ''));
               // If API detected a specific year/month from the file, persist and switch the view to it
               if (json.year && json.month) {
                 try {
