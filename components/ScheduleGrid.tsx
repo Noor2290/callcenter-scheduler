@@ -95,10 +95,12 @@ export default function ScheduleGrid() {
     return Number(format(end, 'd'));
   }, [settings.year, settings.month]);
 
-  function loadMonth() {
-    if (!settings.year || !settings.month) return;
+  function loadMonth(overrideYear?: number, overrideMonth?: number) {
+    const y = overrideYear ?? settings.year;
+    const m = overrideMonth ?? settings.month;
+    if (!y || !m) return;
     startTransition(async () => {
-      const res = await fetch(`/api/schedule/${settings.year}/${settings.month}`);
+      const res = await fetch(`/api/schedule/${y}/${m}`);
       const json = await res.json();
       if (!res.ok) { setMsg(json.error || 'Failed to load schedule'); return; }
       setData(json);
@@ -270,7 +272,6 @@ export default function ScheduleGrid() {
           <input type="file" accept=".xlsx,.xls" className="hidden" onChange={async (e) => {
             const f = e.target.files?.[0];
             if (!f) return;
-            if (!settings.year || !settings.month) { setMsg('حدد السنة/الشهر أولاً'); return; }
             const fd = new FormData();
             fd.append('file', f);
             fd.append('autoGenerateNext', 'true');
@@ -285,8 +286,10 @@ export default function ScheduleGrid() {
                   await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ year: json.year, month: json.month }) });
                 } catch {}
                 setSettings((s) => ({ ...s, year: json.year, month: json.month }));
+                loadMonth(Number(json.year), Number(json.month));
+              } else {
+                loadMonth();
               }
-              loadMonth();
             } catch (err: any) {
               setMsg(err?.message || 'فشل الاستيراد');
             } finally {
