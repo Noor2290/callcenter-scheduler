@@ -384,10 +384,10 @@ export async function generateSchedule(opts: {
       if (last1 === s && last2 === s) return false; // avoid 3 same in a row
       if (w === 0) {
         const prevS = prevLastWeekShift.get(e.id);
-        // If invertFirstWeek is requested, flip the desired continuity for week 0
-        const mustBe: ShiftName | undefined = opts.invertFirstWeek && prevS
+        // Policy: next month starts as the inverse of last saved week
+        const mustBe: ShiftName | undefined = prevS
           ? (prevS === 'Morning' ? 'Evening' : 'Morning')
-          : prevS;
+          : undefined;
         if (mustBe && s !== mustBe) return false;
       }
       // must have remaining quota for this shift this month
