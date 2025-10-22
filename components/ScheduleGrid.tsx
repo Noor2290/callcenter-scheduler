@@ -279,6 +279,13 @@ export default function ScheduleGrid() {
               const json = await res.json();
               if (!res.ok) { setMsg(json.error || 'فشل الاستيراد'); return; }
               setMsg('تم الاستيراد' + (json.nextGenerated ? ' وتم توليد الشهر التالي' : ''));
+              // If API detected a specific year/month from the file, persist and switch the view to it
+              if (json.year && json.month) {
+                try {
+                  await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ year: json.year, month: json.month }) });
+                } catch {}
+                setSettings((s) => ({ ...s, year: json.year, month: json.month }));
+              }
               loadMonth();
             } catch (err: any) {
               setMsg(err?.message || 'فشل الاستيراد');
