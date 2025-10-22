@@ -55,13 +55,22 @@ export async function POST(req: NextRequest) {
       .single();
     if (mErr) throw mErr;
 
-    // Load employees (id, code)
+    // Load employees (id, code, name)
     const { data: emps, error: eErr } = await sb
       .from('employees')
-      .select('id, code');
+      .select('id, code, name');
     if (eErr) throw eErr;
     const byCode = new Map<string, string>();
-    for (const e of emps ?? []) if (e.code) byCode.set(String(e.code).trim(), e.id);
+    const byName = new Map<string, string>();
+    const norm = (s: any) => String(s ?? '')
+      .replace(/[\u200E\u200F\u202A-\u202E]/g, '') // strip RTL/LTR markers
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    for (const e of emps ?? []) {
+      if (e.code) byCode.set(String(e.code).trim(), e.id);
+      if ((e as any).name) byName.set(norm((e as any).name), e.id);
+    }
 
     // Determine month days
     const daysInMonth = new Date(year, month, 0).getDate();
@@ -69,36 +78,47 @@ export async function POST(req: NextRequest) {
     // Parse grid: rows with name in col1 and code (ID) in col2, then day columns start at 3
     const rows: { employee_id: string; date: string; symbol: string; code: string }[] = [];
     for (let r = 1; r <= ws.rowCount; r++) {
-      const codeVal = (ws.getRow(r).getCell(2).value ?? '') as any;
+      const row = ws.getRow(r);
+      const nameVal = row.getCell(1).value as any;
+      const codeVal = row.getCell(2).value as any;
       const codeStr = typeof codeVal === 'number' ? String(codeVal) : String(codeVal || '').trim();
-      const empId = byCode.get(codeStr);
+      let empId = byCode.get(codeStr);
+      if (!empId) {
+        const nameStr = norm(nameVal);
+        if (nameStr) empId = byName.get(nameStr);
+      }
       if (!empId) continue; // skip rows that don't map to an employee
       for (let d = 1; d <= daysInMonth; d++) {
         const c = 2 + d;
-        const v = ws.getRow(r).getCell(c).value as any;
-        const symbol = (typeof v === 'string' ? v : (typeof v === 'number' ? String(v) : '')).toString().toUpperCase();
+        const v = row.getCell(c).value as any;
+        const symbol = (typeof v === 'string' ? v : (typeof v === 'number' ? String(v) : '')).toString().trim().toUpperCase();
         const date = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
         rows.push({ employee_id: empId, date, symbol, code: symbol });
       }
     }
 
-    // Upsert assignments
+    // Replace assignments EXACTLY: first delete all for this month, then insert
+    await sb.from('assignments').delete().eq('month_id', monthRow.id);
     if (rows.length > 0) {
       const BATCH = 500;
       for (let i = 0; i < rows.length; i += BATCH) {
         const chunk = rows.slice(i, i + BATCH).map((r) => ({ ...r, month_id: monthRow.id }));
-        const { error: upErr } = await sb.from('assignments').upsert(chunk as any, { onConflict: 'employee_id,date' });
-        if (upErr) throw upErr;
+        const { error: insErr } = await sb.from('assignments').insert(chunk as any);
+        if (insErr) throw insErr;
       }
     }
 
     // Optionally auto-generate next month with inversion
     let nextGen: any = undefined;
     if (autoNext) {
+      // read useBetween setting for next generation behavior
+      const { data: srows } = await sb.from('settings').select('key,value');
+      const smap = Object.fromEntries((srows ?? []).map((r: any) => [r.key, r.value]));
+      const useBetween = (smap.useBetweenShift ?? smap.useBetween) ? ((smap.useBetweenShift ?? smap.useBetween) === 'true') : false;
       let nextYear = year;
       let nextMonth = month + 1;
       if (nextMonth > 12) { nextMonth = 1; nextYear += 1; }
-      nextGen = await generateSchedule({ year: nextYear, month: nextMonth, invertFirstWeek: true });
+      nextGen = await generateSchedule({ year: nextYear, month: nextMonth, useBetween, invertFirstWeek: true });
     }
 
     return NextResponse.json({ ok: true, imported: rows.length, year, month, nextGenerated: !!nextGen });
