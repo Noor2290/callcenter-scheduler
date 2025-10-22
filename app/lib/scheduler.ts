@@ -496,9 +496,8 @@ export async function generateSchedule(opts: {
         const hist = weekHistory.get(e.id) || [];
         const last1 = hist[hist.length - 1];
         const last2 = hist[hist.length - 2];
-        // Choose block length 1 or 2 deterministically
-        const r = rng(`blk-${year}-${month}-${e.id}`);
-        const blockLen = r < 0.5 ? 1 : 2;
+        // Fixed block length: 2 weeks per shift
+        const blockLen = 2;
 
         // Count current streak length of last1
         let streak = 1;
@@ -506,7 +505,7 @@ export async function generateSchedule(opts: {
           if (hist[i] === last1) streak++; else break;
         }
 
-        // Base desired: stay same until streak reaches blockLen, then switch
+        // Base desired: stay same until streak reaches blockLen (2), then switch
         let desired: ShiftName = last1 === 'Morning' ? 'Morning' : 'Evening';
         if (streak >= blockLen) desired = last1 === 'Morning' ? 'Evening' : 'Morning';
 
