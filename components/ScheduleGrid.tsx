@@ -260,11 +260,33 @@ export default function ScheduleGrid() {
           )}
         </div>
       )}
-      <div className="flex gap-2">
+      <div className="flex gap-2 items-center">
         <button onClick={() => generate()} className="px-4 py-2 bg-indigo-600 text-white rounded disabled:opacity-60" disabled={isGenerating}>توليد الجدول</button>
         <button onClick={saveChanges} className="px-4 py-2 bg-teal-600 text-white rounded disabled:opacity-60" disabled={isSaving}>حفظ التعديلات</button>
         <button onClick={approveMonth} className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-60" disabled={isApproving}>اعتماد الشهر</button>
         <button onClick={exportExcel} className="px-4 py-2 bg-emerald-600 text-white rounded">تصدير Excel</button>
+        <label className="px-4 py-2 bg-slate-600 text-white rounded cursor-pointer">
+          استيراد Excel
+          <input type="file" accept=".xlsx,.xls" className="hidden" onChange={async (e) => {
+            const f = e.target.files?.[0];
+            if (!f) return;
+            if (!settings.year || !settings.month) { setMsg('حدد السنة/الشهر أولاً'); return; }
+            const fd = new FormData();
+            fd.append('file', f);
+            fd.append('autoGenerateNext', 'true');
+            try {
+              const res = await fetch('/api/schedule/import', { method: 'POST', body: fd });
+              const json = await res.json();
+              if (!res.ok) { setMsg(json.error || 'فشل الاستيراد'); return; }
+              setMsg('تم الاستيراد' + (json.nextGenerated ? ' وتم توليد الشهر التالي' : ''));
+              loadMonth();
+            } catch (err: any) {
+              setMsg(err?.message || 'فشل الاستيراد');
+            } finally {
+              e.currentTarget.value = '';
+            }
+          }} />
+        </label>
       </div>
       {msg && <div className="text-sm text-red-600">{msg}</div>}
 

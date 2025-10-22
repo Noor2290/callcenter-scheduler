@@ -63,6 +63,7 @@ export async function generateSchedule(opts: {
   month: number; // 1..12
   useBetween?: boolean; // optional override
   seed?: string | number;
+  invertFirstWeek?: boolean; // optional: invert starting week's shift compared to previous month
 }) {
   const { year, month } = opts;
   const sb = supabaseServer();
@@ -383,7 +384,11 @@ export async function generateSchedule(opts: {
       if (last1 === s && last2 === s) return false; // avoid 3 same in a row
       if (w === 0) {
         const prevS = prevLastWeekShift.get(e.id);
-        if (prevS && s !== prevS) return false;
+        // If invertFirstWeek is requested, flip the desired continuity for week 0
+        const mustBe: ShiftName | undefined = opts.invertFirstWeek && prevS
+          ? (prevS === 'Morning' ? 'Evening' : 'Morning')
+          : prevS;
+        if (mustBe && s !== mustBe) return false;
       }
       // must have remaining quota for this shift this month
       if (s === 'Morning' && (remainingMorningWeeks.get(e.id) || 0) <= 0) return false;
