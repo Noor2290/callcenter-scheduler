@@ -78,8 +78,10 @@ export async function generateSchedule(opts: {
   };
 
   // Hard policy overrides
-  const ALWAYS_EVENING_IDS = new Set<string>(['3979']); // Tooq Almalki
-  const isAlwaysEvening = (id: string) => ALWAYS_EVENING_IDS.has(id);
+  const ALWAYS_EVENING_IDS = new Set<string>([]); // use DB ids here if needed
+  const ALWAYS_EVENING_CODES = new Set<string>(['3979']); // Tooq Almalki (employee code)
+  const isAlwaysEveningEmp = (e: EmployeeRow) =>
+    ALWAYS_EVENING_IDS.has(e.id) || (e.code != null && ALWAYS_EVENING_CODES.has(String(e.code).trim()));
 
   const tAll = Date.now();
   console.log('▶️ generateSchedule:start', {
@@ -311,7 +313,7 @@ export async function generateSchedule(opts: {
     const allowE = !e.allowed_shifts || e.allowed_shifts.includes('Evening');
     let m = Math.floor(weeksCount / 2);
     let ev = weeksCount - m;
-    if (isAlwaysEvening(e.id)) { m = 0; ev = weeksCount; }
+    if (isAlwaysEveningEmp(e)) { m = 0; ev = weeksCount; }
     if (!allowM && allowE) { m = 0; ev = weeksCount; }
     if (allowM && !allowE) { m = weeksCount; ev = 0; }
     remainingMorningWeeks.set(e.id, m);
@@ -383,7 +385,7 @@ export async function generateSchedule(opts: {
 
     const canTake = (e: EmployeeRow, s: ShiftName) => {
       if (e.allowed_shifts && !e.allowed_shifts.includes(s)) return false;
-      if (isAlwaysEvening(e.id) && s !== 'Evening') return false;
+      if (isAlwaysEveningEmp(e) && s !== 'Evening') return false;
       const hist = weekHistory.get(e.id) || [];
       const last1 = hist[hist.length - 1];
       const last2 = hist[hist.length - 2];
@@ -391,7 +393,7 @@ export async function generateSchedule(opts: {
       if (w === 0) {
         const prevS = prevLastWeekShift.get(e.id);
         // Policy: next month starts as the inverse of last saved week
-        const mustBe: ShiftName | undefined = isAlwaysEvening(e.id)
+        const mustBe: ShiftName | undefined = isAlwaysEveningEmp(e)
           ? 'Evening'
           : (prevS
           ? (prevS === 'Morning' ? 'Evening' : 'Morning')
@@ -492,7 +494,7 @@ export async function generateSchedule(opts: {
       if (morningSet.size < weekTargetM) {
         const movable = weekActiveEmps
           .filter((e) => eveningSet.has(e.id))
-          .filter((e) => !isAlwaysEvening(e.id))
+          .filter((e) => !isAlwaysEveningEmp(e))
           .filter((e) => STRICT_WEEKLY || canTake(e, 'Morning') || canTakeLoose(e, 'Morning'))
           .map((e, i) => ({ e, r: rng(`mv-em-${w}-${e.id}-${i}`) }))
           .sort((a, b) => a.r - b.r);
@@ -505,7 +507,7 @@ export async function generateSchedule(opts: {
 
       // Final guard for week 0: ensure always-evening employees are not in morningSet
       for (const e of weekActiveEmps) {
-        if (isAlwaysEvening(e.id)) {
+        if (isAlwaysEveningEmp(e)) {
           if (morningSet.has(e.id)) morningSet.delete(e.id);
           eveningSet.add(e.id);
         }
@@ -529,7 +531,7 @@ export async function generateSchedule(opts: {
 
         // Base desired: stay same until streak reaches blockLen (1), then switch
         let desired: ShiftName = last1 === 'Morning' ? 'Morning' : 'Evening';
-        if (isAlwaysEvening(e.id)) desired = 'Evening';
+        if (isAlwaysEveningEmp(e)) desired = 'Evening';
         if (streak >= blockLen) desired = last1 === 'Morning' ? 'Evening' : 'Morning';
 
         // Enforce no 3 in a row
@@ -551,7 +553,7 @@ export async function generateSchedule(opts: {
 
       // Rebalance to hit targets exactly (respect allowed_shifts)
       const allow = (e: EmployeeRow, s: ShiftName) => {
-        if (isAlwaysEvening(e.id) && s === 'Morning') return false;
+        if (isAlwaysEveningEmp(e) && s === 'Morning') return false;
         return true; // STRICT otherwise
       };
 
@@ -609,7 +611,7 @@ export async function generateSchedule(opts: {
 
       // Final guard: ensure always-evening employees end up in eveningSet
       for (const e of weekActiveEmps) {
-        if (isAlwaysEvening(e.id)) {
+        if (isAlwaysEveningEmp(e)) {
           if (morningSet.has(e.id)) morningSet.delete(e.id);
           eveningSet.add(e.id);
         }
@@ -620,21 +622,22 @@ export async function generateSchedule(opts: {
     const setWeek = (ids: Set<string>, s: ShiftName) => {
       for (const id of ids) {
         const emp = empMap.get(id)!;
-        assignWeek.set(id, s);
+        const sEff: ShiftName = isAlwaysEveningEmp(emp) ? 'Evening' : s;
+        assignWeek.set(id, sEff);
         for (const d of workDays) {
           const iso = dateISO(d);
           const cell = grid.get(emp.id)!.get(iso)!;
           // Overwrite any non-protected day to enforce weekly stability
           if (cell.symbol !== SPECIAL_SYMBOL.Vacation && cell.symbol !== SPECIAL_SYMBOL.Off && !isProtected(emp.id, iso)) {
-            cell.symbol = (SHIFT_SYMBOL as any)[emp.employment_type][s];
-            cell.shift = s;
+            cell.symbol = (SHIFT_SYMBOL as any)[emp.employment_type][sEff];
+            cell.shift = sEff;
           }
         }
         const hist = weekHistory.get(id) || [];
-        hist.push(s);
+        hist.push(sEff);
         weekHistory.set(id, hist);
         // decrement remaining monthly quota
-        if (s === 'Morning') {
+        if (sEff === 'Morning') {
           remainingMorningWeeks.set(id, Math.max(0, (remainingMorningWeeks.get(id) || 0) - 1));
         } else {
           remainingEveningWeeks.set(id, Math.max(0, (remainingEveningWeeks.get(id) || 0) - 1));
@@ -769,7 +772,13 @@ export async function generateSchedule(opts: {
     for (const d of days) {
       const iso = dateISO(d);
       const cell = grid.get(emp.id)!.get(iso)!;
-      const sym = cell.symbol || SPECIAL_SYMBOL.Off;
+      let sym = cell.symbol || SPECIAL_SYMBOL.Off;
+      // Final safety: enforce always-evening employees to have Evening code if not Off/Vacation/Between
+      if (isAlwaysEveningEmp(emp) && sym !== SPECIAL_SYMBOL.Off && sym !== SPECIAL_SYMBOL.Vacation && cell.shift !== 'Between') {
+        const mCode = (SHIFT_SYMBOL as any)[emp.employment_type]['Morning'];
+        const eCode = (SHIFT_SYMBOL as any)[emp.employment_type]['Evening'];
+        if (sym === mCode) sym = eCode;
+      }
       rows.push({
         month_id: monthRow.id,
         employee_id: emp.id,
