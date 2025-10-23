@@ -353,10 +353,12 @@ export async function generateSchedule(opts: {
       .filter((e) => !isAlwaysEveningEmp(e)).length;
     const allowedEveningCount = weekActiveEmps.length;
 
-    // STRICT mode: aim to hit desired exactly; do not reduce by capacity here
-    const weekTargetM = desiredM;
-    const remainingCapacity = Math.max(0, weekActiveEmps.length - weekTargetM);
-    const weekTargetE = desiredEBase;
+    // Targets per week with capacity awareness:
+    // If total capacity < desiredM + desiredE, prioritize Morning (business rule) and reduce Evening.
+    const capacity = weekActiveEmps.length;
+    const weekTargetM = Math.min(desiredM, capacity);
+    const weekTargetE = Math.min(desiredEBase, Math.max(0, capacity - weekTargetM));
+    const remainingCapacity = Math.max(0, capacity - weekTargetM);
 
     if (allowedMorningCount < desiredM || allowedEveningCount < desiredEBase) {
       const reasons: string[] = [];
@@ -366,7 +368,7 @@ export async function generateSchedule(opts: {
         requested: { morning: desiredM, evening: desiredEBase },
         betweenCount,
         allowed: { morning: allowedMorningCount, evening: allowedEveningCount },
-        capacity: weekActiveEmps.length,
+        capacity,
         effective: { morning: weekTargetM, evening: weekTargetE },
         reasons,
       });
@@ -736,7 +738,7 @@ export async function generateSchedule(opts: {
       };
 
       // Build candidate OFF days
-      const candidates = workDays
+      const candidateInfo = workDays
         .filter((d) => {
           const iso = dateISO(d);
           const c = grid.get(e.id)!.get(iso)!;
@@ -753,7 +755,11 @@ export async function generateSchedule(opts: {
           const offCount = countOffOnDate(iso);
           const preferred = offCount < 2; // prefer days still under the soft cap
           return { d, iso, margin, offCount, preferred, r: rng(`wk-off-bal-${w}-${e.id}-${i}`) };
-        })
+        });
+
+      // Strictly prefer days where this shift is above target so OFF won't drop below target
+      let candidates = candidateInfo
+        .filter((x) => x.margin > 0)
         .sort((a, b) => {
           if (a.preferred !== b.preferred) return a.preferred ? -1 : 1;
           if (b.margin !== a.margin) return b.margin - a.margin;
@@ -761,6 +767,18 @@ export async function generateSchedule(opts: {
           return a.r - b.r;
         })
         .map((x) => x.d);
+
+      // If none are above target, fall back to previous heuristic
+      if (candidates.length === 0) {
+        candidates = candidateInfo
+          .sort((a, b) => {
+            if (a.preferred !== b.preferred) return a.preferred ? -1 : 1;
+            if (b.margin !== a.margin) return b.margin - a.margin;
+            if (a.offCount !== b.offCount) return a.offCount - b.offCount;
+            return a.r - b.r;
+          })
+          .map((x) => x.d);
+      }
 
       // Pick the best candidate if any
       if (candidates.length > 0) {
