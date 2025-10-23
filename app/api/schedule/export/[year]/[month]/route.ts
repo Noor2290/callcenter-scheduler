@@ -101,6 +101,8 @@ export async function GET(
     // Medium-soft palette aligned with UI (Tailwind 100-ish)
     // Morning (yellow-100): #FEF3C7 -> FFFE F3C7
     // Evening (blue-100):   #DBEAFE -> FFDB EAFE
+    // Part-time Morning PT4: yellow-300 (#FDE68A) a bit stronger than Morning
+    // Part-time Evening PT5: blue-300   (#93C5FD) a bit stronger than Evening
     // Between (teal-100):   #CCFBF1 -> FFCC FBF1
     // Off (gray-200):       #E5E7EB -> FFE5 E7EB
     // Vacation (amber-100): #FEF3C7 -> FFFE F3C7
@@ -109,8 +111,9 @@ export async function GET(
       MA1: 'FFFEF3C7', MA2: 'FFFEF3C7', MA4: 'FFFEF3C7', M2: 'FFFEF3C7',
       // Evening codes
       EA1: 'FFDBEAFE', E2: 'FFDBEAFE', E5: 'FFDBEAFE',
-      // Part-time (neutral light gray)
-      PT4: 'FFE5E7EB', PT5: 'FFE5E7EB',
+      // Part-time emphasized but close to Morning/Evening
+      PT4: 'FFFDE68A', // yellow-300
+      PT5: 'FF93C5FD', // blue-300
       // Special days
       V: 'FFFEE2E2',
       O: 'FFE5E7EB',
@@ -280,8 +283,8 @@ export async function GET(
       ['O',   'OFF',               'FFE5E7EB'],
     ];
     const midBlock: Array<[string, string, string?]> = [
-      ['PT4', '08:00AM - 01:00PM', 'FFE5E7EB'],
-      ['PT5', '05:00PM - 10:00PM', 'FFE5E7EB'],
+      ['PT4', '08:00AM - 01:00PM', 'FFFDE68A'],
+      ['PT5', '05:00PM - 10:00PM', 'FF93C5FD'],
     ];
     const rightBlock: Array<[string, string, string?]> = [
       ['M2', '08:00AM - 04:00PM', 'FFFEF3C7'],
