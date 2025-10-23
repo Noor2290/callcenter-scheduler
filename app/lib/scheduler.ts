@@ -626,6 +626,23 @@ export async function generateSchedule(opts: {
         }
       }
 
+      // Final clamp: enforce exact targets by moving border employees with preference to their desired shift
+      // Never move always-evening employees to Morning
+      while (eveningSet.size > weekTargetE) {
+        let candidate = weekActiveEmps.find((e) => eveningSet.has(e.id) && allow(e, 'Morning') && desiredByEmp.get(e.id) === 'Morning');
+        if (!candidate) candidate = weekActiveEmps.find((e) => eveningSet.has(e.id) && allow(e, 'Morning'));
+        if (!candidate) break;
+        eveningSet.delete(candidate.id);
+        morningSet.add(candidate.id);
+      }
+      while (morningSet.size > weekTargetM) {
+        let candidate = weekActiveEmps.find((e) => morningSet.has(e.id) && allow(e, 'Evening') && desiredByEmp.get(e.id) === 'Evening');
+        if (!candidate) candidate = weekActiveEmps.find((e) => morningSet.has(e.id) && allow(e, 'Evening'));
+        if (!candidate) break;
+        morningSet.delete(candidate.id);
+        eveningSet.add(candidate.id);
+      }
+
       // Final guard: ensure always-evening employees end up in eveningSet
       for (const e of weekActiveEmps) {
         if (isAlwaysEveningEmp(e)) {
