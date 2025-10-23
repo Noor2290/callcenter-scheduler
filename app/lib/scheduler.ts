@@ -204,7 +204,6 @@ export async function generateSchedule(opts: {
         row.set(iso, { symbol: '' });
       }
     }
-
   }
 
   // ===== Weeks by calendar: week starts on Saturday, Friday is off
@@ -802,6 +801,39 @@ export async function generateSchedule(opts: {
       }
     }
 
+    // Build per-day clamp to ensure Morning target each day using current assignWeek and weeklyOff
+    const forceMorningByDay = new Map<string, Set<string>>(); // iso -> set(empId)
+    for (const d of workDays) {
+      const iso = dateISO(d);
+      // count current Morning based on assignWeek (before applying to grid), skipping OFF/Vacation/Between
+      let currentM = 0;
+      for (const e of emps) {
+        if (isBetweenEmp(e.id)) continue;
+        if (weeklyOff.get(e.id) === iso) continue;
+        const cell = grid.get(e.id)!.get(iso)!;
+        if (cell.symbol === SPECIAL_SYMBOL.Vacation || cell.symbol === SPECIAL_SYMBOL.Off) continue;
+        if (assignWeek.get(e.id) === 'Morning') currentM++;
+      }
+      let need = weekTargetM - currentM;
+      if (need <= 0) continue;
+      // choose candidates from eveningSet that are available this day and not always-evening
+      const candidates = Array.from(eveningSet)
+        .map((id) => empMap.get(id)!)
+        .filter((e) => !isAlwaysEveningEmp(e))
+        .filter((e) => weeklyOff.get(e.id) !== iso)
+        .filter((e) => !isProtected(e.id, iso))
+        .filter((e) => {
+          const c = grid.get(e.id)!.get(iso)!;
+          return c.symbol !== SPECIAL_SYMBOL.Vacation && c.symbol !== SPECIAL_SYMBOL.Off;
+        });
+      for (const e of candidates) {
+        if (need <= 0) break;
+        if (!forceMorningByDay.has(iso)) forceMorningByDay.set(iso, new Set());
+        forceMorningByDay.get(iso)!.add(e.id);
+        need--;
+      }
+    }
+
     // ======= Phase 2: Enforce weekly shift only (no per-day balancing)
     for (const d of workDays) {
       const iso = dateISO(d);
@@ -811,7 +843,7 @@ export async function generateSchedule(opts: {
         if (weeklyOff.get(e.id) === iso) continue;
         const cell = grid.get(e.id)!.get(iso)!;
         if (cell.symbol === SPECIAL_SYMBOL.Vacation || cell.symbol === SPECIAL_SYMBOL.Off) continue;
-        const weeklyShift = assignWeek.get(e.id);
+        const weeklyShift = (forceMorningByDay.get(iso)?.has(e.id)) ? 'Morning' : assignWeek.get(e.id);
         if (!weeklyShift) continue;
         const desired = (SHIFT_SYMBOL as any)[e.employment_type][weeklyShift];
         if (cell.symbol !== desired || cell.shift !== weeklyShift) {
