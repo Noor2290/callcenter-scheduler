@@ -346,16 +346,17 @@ export async function generateSchedule(opts: {
     };
     const weekActiveEmps = activeEmps.filter((e) => !isFullVacationWeek(e.id));
 
+    // For target sizing, ignore allowed_shifts so we don't undercount capacity.
+    // We'll still respect special rules later (e.g., Tooq always Evening),
+    // and rebalancing can override allowed_shifts if needed.
     const allowedMorningCount = weekActiveEmps
-      .filter((e) => !isAlwaysEveningEmp(e))
-      .filter((e) => !e.allowed_shifts || e.allowed_shifts.includes('Morning')).length;
-    const allowedEveningCount = weekActiveEmps
-      .filter((e) => !e.allowed_shifts || e.allowed_shifts.includes('Evening')).length;
+      .filter((e) => !isAlwaysEveningEmp(e)).length;
+    const allowedEveningCount = weekActiveEmps.length;
 
     // STRICT mode: aim to hit desired exactly; do not reduce by capacity here
-    const weekTargetM = Math.min(desiredM, allowedMorningCount);
+    const weekTargetM = desiredM;
     const remainingCapacity = Math.max(0, weekActiveEmps.length - weekTargetM);
-    const weekTargetE = Math.min(desiredEBase, allowedEveningCount);
+    const weekTargetE = desiredEBase;
 
     if (allowedMorningCount < desiredM || allowedEveningCount < desiredEBase) {
       const reasons: string[] = [];
