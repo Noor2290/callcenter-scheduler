@@ -346,13 +346,16 @@ export async function generateSchedule(opts: {
     };
     const weekActiveEmps = activeEmps.filter((e) => !isFullVacationWeek(e.id));
 
-    const allowedMorningCount = weekActiveEmps.filter((e) => !e.allowed_shifts || e.allowed_shifts.includes('Morning')).length;
-    const allowedEveningCount = weekActiveEmps.filter((e) => !e.allowed_shifts || e.allowed_shifts.includes('Evening')).length;
+    const allowedMorningCount = weekActiveEmps
+      .filter((e) => !isAlwaysEveningEmp(e))
+      .filter((e) => !e.allowed_shifts || e.allowed_shifts.includes('Morning')).length;
+    const allowedEveningCount = weekActiveEmps
+      .filter((e) => !e.allowed_shifts || e.allowed_shifts.includes('Evening')).length;
 
     // STRICT mode: aim to hit desired exactly; do not reduce by capacity here
-    const weekTargetM = desiredM;
+    const weekTargetM = Math.min(desiredM, allowedMorningCount);
     const remainingCapacity = Math.max(0, weekActiveEmps.length - weekTargetM);
-    const weekTargetE = desiredEBase;
+    const weekTargetE = Math.min(desiredEBase, allowedEveningCount);
 
     if (allowedMorningCount < desiredM || allowedEveningCount < desiredEBase) {
       const reasons: string[] = [];
