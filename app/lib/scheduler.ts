@@ -355,7 +355,19 @@ export async function generateSchedule(opts: {
 
     // Targets per week with capacity awareness:
     // If total capacity < desiredM + desiredE, prioritize Morning (business rule) and reduce Evening.
-    const capacity = weekActiveEmps.length;
+    // Treat all employees equally in capacity count (including PartTime)
+    // Especially to make Walaa included as a normal employee in shift distribution
+    let capacity = 0;
+    for (const e of weekActiveEmps) {
+      // Walaa Alshareef treated as full-time for scheduling fairness
+      if (/walaa/i.test(e.name) || /ولاء/i.test(e.name)) {
+        capacity += 1;
+      } else if (e.employment_type === 'PartTime') {
+        capacity += 1; // treat PartTime same as FullTime in distribution
+      } else {
+        capacity += 1;
+      }
+    }
     const weekTargetM = Math.min(desiredM, capacity);
     const weekTargetE = Math.min(desiredEBase, Math.max(0, capacity - weekTargetM));
     const remainingCapacity = Math.max(0, capacity - weekTargetM);
