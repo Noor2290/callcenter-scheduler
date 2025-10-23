@@ -502,6 +502,14 @@ export async function generateSchedule(opts: {
           morningSet.add(m.e.id);
         }
       }
+
+      // Final guard for week 0: ensure always-evening employees are not in morningSet
+      for (const e of weekActiveEmps) {
+        if (isAlwaysEvening(e.id)) {
+          if (morningSet.has(e.id)) morningSet.delete(e.id);
+          eveningSet.add(e.id);
+        }
+      }
     } else {
       // Weeks > 0: per-employee block pattern (1-week or 2-week blocks), seeded and stable per (emp,year,month)
       morningSet = new Set<string>();
