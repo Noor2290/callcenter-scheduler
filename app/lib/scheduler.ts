@@ -519,6 +519,7 @@ export async function generateSchedule(opts: {
       // Weeks > 0: per-employee block pattern (1-week or 2-week blocks), seeded and stable per (emp,year,month)
       morningSet = new Set<string>();
       eveningSet = new Set<string>();
+      const desiredByEmp = new Map<string, ShiftName>();
       for (const e of weekActiveEmps) {
         const hist = weekHistory.get(e.id) || [];
         const last1 = hist[hist.length - 1];
@@ -551,6 +552,7 @@ export async function generateSchedule(opts: {
           }
         }
 
+        desiredByEmp.set(e.id, desired);
         if (desired === 'Morning') morningSet.add(e.id); else eveningSet.add(e.id);
       }
 
@@ -560,24 +562,36 @@ export async function generateSchedule(opts: {
         return true; // STRICT otherwise
       };
 
-      // If Morning exceeds target, move some to Evening
+      // If Morning exceeds target, move some to Evening (prefer those whose desired is Evening)
       if (morningSet.size > weekTargetM) {
-        const surplus = weekActiveEmps
-          .filter((e) => morningSet.has(e.id) && allow(e, 'Evening'))
-          .map((e, i) => ({ e, r: rng(`rb-me-${w}-${e.id}-${i}`) }))
+        let surplus = weekActiveEmps
+          .filter((e) => morningSet.has(e.id) && allow(e, 'Evening') && desiredByEmp.get(e.id) === 'Evening')
+          .map((e, i) => ({ e, r: rng(`rb-me-pref-${w}-${e.id}-${i}`) }))
           .sort((a, b) => a.r - b.r);
+        if (surplus.length === 0) {
+          surplus = weekActiveEmps
+            .filter((e) => morningSet.has(e.id) && allow(e, 'Evening'))
+            .map((e, i) => ({ e, r: rng(`rb-me-any-${w}-${e.id}-${i}`) }))
+            .sort((a, b) => a.r - b.r);
+        }
         for (const s of surplus) {
           if (morningSet.size <= weekTargetM) break;
           morningSet.delete(s.e.id);
           eveningSet.add(s.e.id);
         }
       }
-      // If Evening exceeds target, move some to Morning
+      // If Evening exceeds target, move some to Morning (skip always-evening; prefer those whose desired is Morning)
       if (eveningSet.size > weekTargetE) {
-        const surplus = weekActiveEmps
-          .filter((e) => eveningSet.has(e.id) && allow(e, 'Morning'))
-          .map((e, i) => ({ e, r: rng(`rb-em-${w}-${e.id}-${i}`) }))
+        let surplus = weekActiveEmps
+          .filter((e) => eveningSet.has(e.id) && allow(e, 'Morning') && desiredByEmp.get(e.id) === 'Morning')
+          .map((e, i) => ({ e, r: rng(`rb-em-pref-${w}-${e.id}-${i}`) }))
           .sort((a, b) => a.r - b.r);
+        if (surplus.length === 0) {
+          surplus = weekActiveEmps
+            .filter((e) => eveningSet.has(e.id) && allow(e, 'Morning'))
+            .map((e, i) => ({ e, r: rng(`rb-em-any-${w}-${e.id}-${i}`) }))
+            .sort((a, b) => a.r - b.r);
+        }
         for (const s of surplus) {
           if (eveningSet.size <= weekTargetE) break;
           eveningSet.delete(s.e.id);
