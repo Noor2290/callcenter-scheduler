@@ -76,6 +76,7 @@ export async function POST(req: NextRequest) {
     const daysInMonth = new Date(year, month, 0).getDate();
 
     // Parse grid: rows with name in col1 and code (ID) in col2, then day columns start at 3
+    const ALWAYS_EVENING_ID = '3979';
     const rows: { employee_id: string; date: string; symbol: string; code: string }[] = [];
     for (let r = 1; r <= ws.rowCount; r++) {
       const row = ws.getRow(r);
@@ -91,7 +92,13 @@ export async function POST(req: NextRequest) {
       for (let d = 1; d <= daysInMonth; d++) {
         const c = 2 + d;
         const v = row.getCell(c).value as any;
-        const symbol = (typeof v === 'string' ? v : (typeof v === 'number' ? String(v) : '')).toString().trim().toUpperCase();
+        let symbol = (typeof v === 'string' ? v : (typeof v === 'number' ? String(v) : '')).toString().trim().toUpperCase();
+        // Force Tooq Almalki to Evening on import as well
+        if (empId === ALWAYS_EVENING_ID) {
+          if (symbol && symbol !== 'O' && symbol !== 'V' && symbol !== 'B') {
+            if (symbol.startsWith('M')) symbol = 'EA1';
+          }
+        }
         const date = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
         rows.push({ employee_id: empId, date, symbol, code: symbol });
       }
