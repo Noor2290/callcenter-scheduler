@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     if (mErr) throw mErr;
 
     // sanitize changes
-    const rows = changes
+    const rowsRaw = changes
       .filter((c) => c.employee_id && c.date)
       .map((c) => ({
         month_id: monthRow.id,
@@ -31,6 +31,13 @@ export async function POST(req: NextRequest) {
         symbol: c.symbol?.toUpperCase() || '',
         code: c.symbol?.toUpperCase() || '',
       }));
+
+    // dedupe within the same batch on (employee_id, date) to satisfy unique constraint during upsert
+    const map = new Map<string, { month_id: string; employee_id: string; date: string; symbol: string; code: string }>();
+    for (const r of rowsRaw) {
+      map.set(`${r.employee_id}|${r.date}`, r); // keep last occurrence
+    }
+    const rows = Array.from(map.values());
 
     if (rows.length === 0) return NextResponse.json({ ok: true, updated: 0 });
 
