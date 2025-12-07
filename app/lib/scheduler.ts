@@ -73,35 +73,93 @@ export function generateRandomSchedule(opts: {
   };
 
   // Precompute weekly shift per employee per week index
+  // نحاول جعل عدد موظفات Morning في الأسبوع قريب من coverageMorning
+  // وعدد موظفات Evening قريب من coverageEvening، مع قلب الأسبوع الأول حسب آخر أسبوع من الشهر السابق إن وجد.
   const weeklyShiftByEmpWeek = new Map<string, Map<number, ShiftName>>();
 
-  const getWeeklyShift = (empId: string, weekIdx: number): ShiftName => {
-    let byWeek = weeklyShiftByEmpWeek.get(empId);
-    if (!byWeek) {
-      byWeek = new Map<number, ShiftName>();
-      weeklyShiftByEmpWeek.set(empId, byWeek);
+  // حصر جميع أسابيع هذا الشهر
+  const weekIndices = new Set<number>();
+  for (let day = 1; day <= daysInMonth; day++) {
+    weekIndices.add(getWeekIndex(day));
+  }
+
+  // دالة مساعدة لتوزيع الشفتات أسبوعياً
+  const allEmpIds = employees.map((e) => e.id);
+
+  for (const weekIdx of weekIndices) {
+    // هدفنا التقريبي لعدد الموظفات لكل شفت في هذا الأسبوع
+    const targetMWeek = Math.max(0, Math.min(coverageMorning, employees.length));
+    const targetEWeek = Math.max(0, Math.min(coverageEvening, employees.length));
+
+    // سنملأ هذا الماب لكل موظفة في هذا الأسبوع
+    for (const emp of employees) {
+      let byWeek = weeklyShiftByEmpWeek.get(emp.id);
+      if (!byWeek) {
+        byWeek = new Map<number, ShiftName>();
+        weeklyShiftByEmpWeek.set(emp.id, byWeek);
+      }
     }
-    const existing = byWeek.get(weekIdx);
-    if (existing) return existing;
 
-    let chosen: ShiftName;
+    // نعمل نسخة عشوائية من ترتيب الموظفات
+    const shuffled = [...employees];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
 
-    // For the first week (weekIdx === 0), try to invert the last-week shift from previous month when provided
-    if (weekIdx === 0 && prevLastWeekShiftByEmp) {
-      const prev = prevLastWeekShiftByEmp[empId];
-      if (prev === 'Morning') {
-        chosen = 'Evening';
-      } else if (prev === 'Evening') {
+    let mCount = 0;
+    let eCount = 0;
+
+    for (const emp of shuffled) {
+      const byWeek = weeklyShiftByEmpWeek.get(emp.id)!;
+      // إذا سبق تعيين هذا الأسبوع لهذا الموظفة، نتخطاه
+      if (byWeek.has(weekIdx)) continue;
+
+      // تفضيل الشفت بناءً على قلب آخر أسبوع من الشهر السابق للأسبوع الأول فقط
+      let preferred: ShiftName | null = null;
+      if (weekIdx === 0 && prevLastWeekShiftByEmp) {
+        const prev = prevLastWeekShiftByEmp[emp.id];
+        if (prev === 'Morning') preferred = 'Evening';
+        else if (prev === 'Evening') preferred = 'Morning';
+      }
+
+      // نختار الشفت مع محاولة الاقتراب من الهدف
+      let chosen: ShiftName;
+      const canAddMorning = mCount < targetMWeek;
+      const canAddEvening = eCount < targetEWeek;
+
+      if (preferred === 'Morning' && canAddMorning) {
         chosen = 'Morning';
+      } else if (preferred === 'Evening' && canAddEvening) {
+        chosen = 'Evening';
+      } else if (canAddMorning && !canAddEvening) {
+        chosen = 'Morning';
+      } else if (!canAddMorning && canAddEvening) {
+        chosen = 'Evening';
+      } else if (canAddMorning && canAddEvening) {
+        // إذا كان كلاهما متاح، اختر عشوائياً
+        chosen = rng() < 0.5 ? 'Morning' : 'Evening';
       } else {
+        // إذا وصلنا الهدف لكلا الشفتين، نختار عشوائيًا
         chosen = rng() < 0.5 ? 'Morning' : 'Evening';
       }
-    } else {
-      // Other weeks remain purely random as before
-      chosen = rng() < 0.5 ? 'Morning' : 'Evening';
+
+      byWeek.set(weekIdx, chosen);
+      if (chosen === 'Morning') mCount += 1; else eCount += 1;
     }
-    byWeek.set(weekIdx, chosen);
-    return chosen;
+  }
+
+  const getWeeklyShift = (empId: string, weekIdx: number): ShiftName => {
+    const byWeek = weeklyShiftByEmpWeek.get(empId);
+    if (!byWeek) {
+      // احتياط: إذا لم يُحسب هذا الأسبوع لهذا الموظفة لأي سبب، نختار عشوائيًا
+      return rng() < 0.5 ? 'Morning' : 'Evening';
+    }
+    const s = byWeek.get(weekIdx);
+    if (!s) {
+      return rng() < 0.5 ? 'Morning' : 'Evening';
+    }
+    return s;
   };
 
   const pad2 = (n: number) => String(n).padStart(2, '0');
