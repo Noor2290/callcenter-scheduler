@@ -374,6 +374,17 @@ export async function generateSchedule(opts: { year: number; month: number; useB
     }
   }
 
+  // Precompute monthly workload (number of working days per employee) once for fairness heuristics
+  const empWorkload = new Map<string, number>();
+  for (const emp of emps) {
+    let cnt = 0;
+    for (const dd of days) {
+      const c = grid.get(emp.id)!.get(dateISO(dd))!;
+      if (c.symbol && c.symbol !== SPECIAL_SYMBOL.Off && c.symbol !== SPECIAL_SYMBOL.Vacation) cnt += 1;
+    }
+    empWorkload.set(emp.id, cnt);
+  }
+
   // Coverage balancing per day
   for (const d of days) {
     const iso = dateISO(d);
@@ -389,17 +400,6 @@ export async function generateSchedule(opts: { year: number; month: number; useB
 
     const targetM = coverageMorning || 0;
     const targetE = coverageEvening || 0;
-
-    // Helper: monthly load count to balance
-    const empWorkload = new Map<string, number>();
-    for (const emp of emps) {
-      let cnt = 0;
-      for (const dd of days) {
-        const c = grid.get(emp.id)!.get(dateISO(dd))!;
-        if (c.symbol && c.symbol !== SPECIAL_SYMBOL.Off && c.symbol !== SPECIAL_SYMBOL.Vacation) cnt += 1;
-      }
-      empWorkload.set(emp.id, cnt);
-    }
 
     // Helper to count current extra off (non-Friday) for an employee in a given week
     const getWeekExtraOffCount = (empId: string, anyDateInWeek: Date) => {
