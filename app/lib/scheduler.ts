@@ -27,6 +27,100 @@ export type RequestRow = {
   type: 'Vacation' | 'OffRequest';
 };
 
+// Lightweight generator: simple random schedule for a month
+// - Keeps table shape ونفس الرموز (MA/EA/PT/V/O)
+// - يحترم الجمعة أوف + الإجازات/الطلبات الموجودة
+// - يوزع Morning/Evening عشوائياً ضمن allowed_shifts لكل موظفة
+export async function generateRandomSchedule(opts: { year: number; month: number }) {
+  const { year, month } = opts;
+  const sb = supabaseServer();
+
+  // Ensure month row exists
+  const { data: monthRow, error: monthErr } = await sb
+    .from('months')
+    .upsert({ year, month, seed: FIXED_RULES.seed }, { onConflict: 'year,month' })
+    .select('*')
+    .single();
+  if (monthErr) throw monthErr;
+
+  // Load employees
+  const { data: employees, error: empErr } = await sb
+    .from('employees')
+    .select('id, code, name, employment_type, allowed_shifts');
+  if (empErr) throw empErr;
+  const emps = ((employees ?? []) as EmployeeRow[]).map((e) => ({
+    ...e,
+    allowed_shifts: (e.allowed_shifts && e.allowed_shifts.length > 0)
+      ? e.allowed_shifts
+      : (['Morning', 'Evening'] as ShiftName[]),
+  }));
+
+  // Load existing requests (Vacation / OffRequest) for this month
+  const start = startOfMonth(new Date(year, month - 1, 1));
+  const end = endOfMonth(start);
+  const { data: reqs, error: reqErr } = await sb
+    .from('requests')
+    .select('id, employee_id, date, type')
+    .gte('date', format(start, 'yyyy-MM-dd'))
+    .lte('date', format(end, 'yyyy-MM-dd'));
+  if (reqErr) throw reqErr;
+  const requests = (reqs ?? []) as RequestRow[];
+  const reqByEmpDate = new Map<string, 'Vacation' | 'OffRequest'>();
+  for (const r of requests) {
+    reqByEmpDate.set(`${r.employee_id}|${r.date}`, r.type);
+  }
+
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const rows: { month_id: string; employee_id: string; date: string; symbol: string; code: string }[] = [];
+
+  const rng = seedrandom(String(FIXED_RULES.seed) + `-simple-${year}-${month}`);
+
+  for (const emp of emps) {
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const jsDate = new Date(year, month - 1, d);
+
+      // Friday off by rule
+      if (isFriday(jsDate) && FIXED_RULES.fridayOff) {
+        rows.push({ month_id: monthRow.id, employee_id: emp.id, date, symbol: SPECIAL_SYMBOL.Off, code: SPECIAL_SYMBOL.Off });
+        continue;
+      }
+
+      // Respect explicit requests first
+      const req = reqByEmpDate.get(`${emp.id}|${date}`);
+      if (req === 'Vacation') {
+        rows.push({ month_id: monthRow.id, employee_id: emp.id, date, symbol: SPECIAL_SYMBOL.Vacation, code: SPECIAL_SYMBOL.Vacation });
+        continue;
+      }
+      if (req === 'OffRequest') {
+        rows.push({ month_id: monthRow.id, employee_id: emp.id, date, symbol: SPECIAL_SYMBOL.Off, code: SPECIAL_SYMBOL.Off });
+        continue;
+      }
+
+      // Randomly pick Morning/Evening among allowed_shifts
+      const choices = emp.allowed_shifts.includes('Morning') && emp.allowed_shifts.includes('Evening')
+        ? (rng() < 0.5 ? 'Morning' : 'Evening')
+        : (emp.allowed_shifts[0] ?? 'Morning');
+      const shift: ShiftName = choices as ShiftName;
+      const sym = SHIFT_SYMBOL[emp.employment_type][shift];
+      rows.push({ month_id: monthRow.id, employee_id: emp.id, date, symbol: sym, code: sym });
+    }
+  }
+
+  // Replace existing assignments for this month
+  await sb.from('assignments').delete().eq('month_id', monthRow.id);
+  if (rows.length > 0) {
+    const BATCH = 500;
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const chunk = rows.slice(i, i + BATCH);
+      const { error: insErr } = await sb.from('assignments').insert(chunk as any);
+      if (insErr) throw insErr;
+    }
+  }
+
+  return { ok: true, generated: rows.length };
+}
+
 function weekIndexFromSaturday(date: Date): number {
   // Stable week index where week starts on Saturday (Sa..Fr)
   // Compute the Saturday of the week for `date` and for the month start, then diff in weeks.

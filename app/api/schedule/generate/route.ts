@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateSchedule } from '@/app/lib/scheduler';
+import { generateRandomSchedule } from '@/app/lib/scheduler';
 import supabaseServer from '@/app/lib/supabaseServer';
 
 export const runtime = 'nodejs';
@@ -38,7 +38,8 @@ export async function POST(req: NextRequest) {
     });
 
     const result = await Promise.race([
-      generateSchedule({ year: Number(finalYear), month: Number(finalMonth), useBetween: !!finalUseBetween, seed: finalSeed }),
+      // استخدم المولّد الخفيف الذي ينشئ جدولاً عشوائياً سريعاً للشهر المحدد
+      generateRandomSchedule({ year: Number(finalYear), month: Number(finalMonth) }),
       timeoutPromise,
     ]) as any;
 
