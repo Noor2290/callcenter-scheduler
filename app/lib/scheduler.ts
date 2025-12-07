@@ -56,42 +56,52 @@ export function generateRandomSchedule(opts: {
   seed?: string | number;
   prevLastWeekShiftByEmp?: Record<string, ShiftName>;
 }): AssignmentInsertRow[] {
-  const { employees, monthId, year, month, coverageMorning, coverageEvening, seed, prevLastWeekShiftByEmp } = opts;
+  const {
+    employees,
+    monthId,
+    year,
+    month,
+    coverageMorning,
+    coverageEvening,
+    seed,
+    prevLastWeekShiftByEmp,
+  } = opts;
 
   const daysInMonth = new Date(year, month, 0).getDate();
   const rows: AssignmentInsertRow[] = [];
 
-  // Use provided seed when passed (for per-call randomness); otherwise fall back to deterministic seed
+  // نستخدم seed ثابت (أو الممرر) لتثبيت العشوائية إذا احتجنا
   const baseSeed = seed ?? (String(FIXED_RULES.seed) + `-weekly-${year}-${month}`);
   const rng = seedrandom(String(baseSeed));
 
-  // Partition the month into calendar weeks من السبت إلى الجمعة
-  // نستخدم weekIndexFromSaturday التي تعتمد على التاريخ الفعلي
+  // تعريف مروه
+  const MARWA_ID = '3864';
+  const MARWA_NAME = 'Marwa Alrehaili';
+
+  const isMarwa = (emp: EmployeeRow) =>
+    emp.id === MARWA_ID || emp.code === MARWA_ID || emp.name === MARWA_NAME;
+
+  // helper: week index من السبت إلى الجمعة
   const getWeekIndex = (day: number) => {
     const jsDate = new Date(year, month - 1, day);
     return weekIndexFromSaturday(jsDate);
   };
 
-  // Precompute weekly shift per employee per week index
-  // نحاول جعل عدد موظفات Morning في الأسبوع قريب من coverageMorning
-  // وعدد موظفات Evening قريب من coverageEvening، مع قلب الأسبوع الأول حسب آخر أسبوع من الشهر السابق إن وجد.
-  const weeklyShiftByEmpWeek = new Map<string, Map<number, ShiftName>>();
-
-  // حصر جميع أسابيع هذا الشهر
+  // حصر أسابيع هذا الشهر
   const weekIndices = new Set<number>();
   for (let day = 1; day <= daysInMonth; day++) {
     weekIndices.add(getWeekIndex(day));
   }
 
-  // دالة مساعدة لتوزيع الشفتات أسبوعياً
-  const allEmpIds = employees.map((e) => e.id);
+  // شفت أسبوعي لكل موظفة ولكل أسبوع
+  const weeklyShiftByEmpWeek = new Map<string, Map<number, ShiftName>>();
 
+  // توزيع الشفتات أسبوعيًا مع تقريب الهدف (coverageMorning / coverageEvening)
   for (const weekIdx of weekIndices) {
-    // هدفنا التقريبي لعدد الموظفات لكل شفت في هذا الأسبوع
     const targetMWeek = Math.max(0, Math.min(coverageMorning, employees.length));
     const targetEWeek = Math.max(0, Math.min(coverageEvening, employees.length));
 
-    // سنملأ هذا الماب لكل موظفة في هذا الأسبوع
+    // تهيئة الماب
     for (const emp of employees) {
       let byWeek = weeklyShiftByEmpWeek.get(emp.id);
       if (!byWeek) {
@@ -100,7 +110,7 @@ export function generateRandomSchedule(opts: {
       }
     }
 
-    // نعمل نسخة عشوائية من ترتيب الموظفات
+    // ترتيب عشوائي للموظفات
     const shuffled = [...employees];
     for (let i = shuffled.length - 1; i > 0; i--) {
       const j = Math.floor(rng() * (i + 1));
@@ -112,10 +122,9 @@ export function generateRandomSchedule(opts: {
 
     for (const emp of shuffled) {
       const byWeek = weeklyShiftByEmpWeek.get(emp.id)!;
-      // إذا سبق تعيين هذا الأسبوع لهذا الموظفة، نتخطاه
       if (byWeek.has(weekIdx)) continue;
 
-      // تفضيل الشفت بناءً على قلب آخر أسبوع من الشهر السابق للأسبوع الأول فقط
+      // قلب أول أسبوع حسب آخر شفت في الشهر السابق (إن وجد)
       let preferred: ShiftName | null = null;
       if (weekIdx === 0 && prevLastWeekShiftByEmp) {
         const prev = prevLastWeekShiftByEmp[emp.id];
@@ -123,7 +132,6 @@ export function generateRandomSchedule(opts: {
         else if (prev === 'Evening') preferred = 'Morning';
       }
 
-      // نختار الشفت مع محاولة الاقتراب من الهدف
       let chosen: ShiftName;
       const canAddMorning = mCount < targetMWeek;
       const canAddEvening = eCount < targetEWeek;
@@ -137,22 +145,20 @@ export function generateRandomSchedule(opts: {
       } else if (!canAddMorning && canAddEvening) {
         chosen = 'Evening';
       } else if (canAddMorning && canAddEvening) {
-        // إذا كان كلاهما متاح، اختر عشوائياً
         chosen = rng() < 0.5 ? 'Morning' : 'Evening';
       } else {
-        // إذا وصلنا الهدف لكلا الشفتين، نختار عشوائيًا
         chosen = rng() < 0.5 ? 'Morning' : 'Evening';
       }
 
       byWeek.set(weekIdx, chosen);
-      if (chosen === 'Morning') mCount += 1; else eCount += 1;
+      if (chosen === 'Morning') mCount += 1;
+      else eCount += 1;
     }
   }
 
   const getWeeklyShift = (empId: string, weekIdx: number): ShiftName => {
     const byWeek = weeklyShiftByEmpWeek.get(empId);
     if (!byWeek) {
-      // احتياط: إذا لم يُحسب هذا الأسبوع لهذا الموظفة لأي سبب، نختار عشوائيًا
       return rng() < 0.5 ? 'Morning' : 'Evening';
     }
     const s = byWeek.get(weekIdx);
@@ -162,54 +168,94 @@ export function generateRandomSchedule(opts: {
     return s;
   };
 
+  // عدّاد أوف أسبوعي لكل موظفة (غير الجمعة)
+  const weeklyOffCount = new Map<string, Map<number, number>>();
+
+  const getWeekOffCount = (empId: string, weekIdx: number): number => {
+    const byWeek = weeklyOffCount.get(empId);
+    return byWeek?.get(weekIdx) ?? 0;
+  };
+
+  const incWeekOff = (empId: string, weekIdx: number) => {
+    let byWeek = weeklyOffCount.get(empId);
+    if (!byWeek) {
+      byWeek = new Map<number, number>();
+      weeklyOffCount.set(empId, byWeek);
+    }
+    const cur = byWeek.get(weekIdx) ?? 0;
+    byWeek.set(weekIdx, cur + 1);
+  };
+
   const pad2 = (n: number) => String(n).padStart(2, '0');
+  const maxOffPerDay = 2; // غير الجمعة
 
   for (let day = 1; day <= daysInMonth; day++) {
+    const jsDate = new Date(year, month - 1, day);
+    const weekday = jsDate.getDay(); // 0=Sun .. 5=Fri .. 6=Sat
     const weekIdx = getWeekIndex(day);
     const isoDate = `${year}-${pad2(month)}-${pad2(day)}`;
 
-    // Bucket employees by their weekly shift for this week
-    const morningEmps: EmployeeRow[] = [];
-    const eveningEmps: EmployeeRow[] = [];
+    // 🔹 الجمعة: أوف للجميع (لا تُحتسب في الأوف الأسبوعي)
+    if (weekday === 5) {
+      for (const emp of employees) {
+        rows.push({
+          month_id: monthId,
+          employee_id: emp.id,
+          date: isoDate,
+          symbol: SPECIAL_SYMBOL.Off,
+          code: SPECIAL_SYMBOL.Off,
+        });
+      }
+      continue;
+    }
 
-    for (const emp of employees) {
-      const wShift = getWeeklyShift(emp.id, weekIdx);
-      if (wShift === 'Morning') {
-        morningEmps.push(emp);
-      } else {
-        eveningEmps.push(emp);
+    // مجموعة الأوف لليوم
+    const offToday = new Set<string>();
+
+    // 🔹 السبت: مروه فقط أوف، والباقي يشتغلون
+    if (weekday === 6) {
+      for (const emp of employees) {
+        if (isMarwa(emp)) {
+          offToday.add(emp.id);
+          incWeekOff(emp.id, weekIdx); // هذا هو أوف الأسبوع لمروه
+          break;
+        }
       }
     }
 
-    // Helper: random subset (no fairness, pure random)
-    const pickRandom = (list: EmployeeRow[], limit: number): Set<string> => {
-      const n = list.length;
-      const count = Math.min(limit, n);
-      const indices = Array.from({ length: n }, (_, i) => i);
-      for (let i = n - 1; i > 0; i--) {
+    // نختار أوف إضافي عشوائي (حتى 2 في اليوم) لغير مروه وبشرط أوف واحد لكل موظفة في الأسبوع
+    const remainingOffSlots = Math.max(0, maxOffPerDay - offToday.size);
+    if (remainingOffSlots > 0) {
+      const candidates = employees.filter((emp) => {
+        if (offToday.has(emp.id)) return false; // مروه إذا كانت أوف
+        const currentWeekOff = getWeekOffCount(emp.id, weekIdx);
+        if (currentWeekOff >= 1) return false; // خلاص أخذت أوف أسبوعي
+        return true;
+      });
+
+      // نخلط المرشحات ونأخذ حتى remainingOffSlots
+      for (let i = candidates.length - 1; i > 0; i--) {
         const j = Math.floor(rng() * (i + 1));
-        [indices[i], indices[j]] = [indices[j], indices[i]];
+        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
       }
-      const chosen = new Set<string>();
-      for (let k = 0; k < count; k++) {
-        const idx = indices[k];
-        const emp = list[idx];
-        chosen.add(emp.id);
+
+      const toTake = Math.min(remainingOffSlots, candidates.length);
+      for (let i = 0; i < toTake; i++) {
+        const emp = candidates[i];
+        offToday.add(emp.id);
+        incWeekOff(emp.id, weekIdx);
       }
-      return chosen;
-    };
+    }
 
-    const morningChosen = pickRandom(morningEmps, coverageMorning);
-    const eveningChosen = pickRandom(eveningEmps, coverageEvening);
-
+    // الآن نوزّع الشفتات حسب الشفت الأسبوعي لكل موظفة
     for (const emp of employees) {
       let symbol: string;
-      if (morningChosen.has(emp.id)) {
-        symbol = SHIFT_SYMBOL[emp.employment_type]['Morning'];
-      } else if (eveningChosen.has(emp.id)) {
-        symbol = SHIFT_SYMBOL[emp.employment_type]['Evening'];
-      } else {
+
+      if (offToday.has(emp.id)) {
         symbol = SPECIAL_SYMBOL.Off;
+      } else {
+        const wShift = getWeeklyShift(emp.id, weekIdx);
+        symbol = SHIFT_SYMBOL[emp.employment_type][wShift];
       }
 
       rows.push({
@@ -224,6 +270,7 @@ export function generateRandomSchedule(opts: {
 
   return rows;
 }
+
 
 function weekIndexFromSaturday(date: Date): number {
   // Stable week index where week starts on Saturday (Sa..Fr)
