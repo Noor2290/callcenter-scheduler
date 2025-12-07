@@ -24,6 +24,7 @@ export default function ScheduleGrid() {
   const [gridOriginal, setGridOriginal] = useState<Record<string, Record<string, string>>>({}); // snapshot from server
   const [isPending, startTransition] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
 
   // load settings for year/month
   useEffect(() => {
@@ -98,6 +99,32 @@ export default function ScheduleGrid() {
     window.location.href = `/api/schedule/export/${settings.year}/${settings.month}`;
   }
 
+  async function importExcel(file: File) {
+    try {
+      setIsImporting(true);
+      setMsg('جاري استيراد الملف...');
+      const form = new FormData();
+      form.append('file', file);
+      form.append('autoGenerateNext', 'false');
+
+      const res = await fetch('/api/schedule/import', {
+        method: 'POST',
+        body: form,
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) {
+        setMsg(json.error || 'فشل الاستيراد');
+        return;
+      }
+      setMsg('تم الاستيراد بنجاح');
+      loadMonth();
+    } catch (e: any) {
+      setMsg(e?.message || 'فشل الاستيراد');
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
   function saveChanges() {
     if (!settings.year || !settings.month) { setMsg('حدد السنة/الشهر أولاً'); return; }
     const changes: { employee_id: string; date: string; symbol: string }[] = [];
@@ -152,7 +179,7 @@ export default function ScheduleGrid() {
           )}
         </div>
       )}
-      <div className="flex gap-2">
+      <div className="flex gap-2 items-center">
         <button 
           onClick={generate} 
           className="px-4 py-2 bg-indigo-600 text-white rounded disabled:opacity-60 flex items-center gap-2" 
@@ -172,6 +199,22 @@ export default function ScheduleGrid() {
         </button>
         <button onClick={saveChanges} className="px-4 py-2 bg-teal-600 text-white rounded disabled:opacity-60" disabled={isPending}>حفظ التعديلات</button>
         <button onClick={exportExcel} className="px-4 py-2 bg-emerald-600 text-white rounded">تصدير Excel</button>
+        <label className="px-4 py-2 bg-sky-600 text-white rounded cursor-pointer disabled:opacity-60">
+          {isImporting ? 'جاري الاستيراد...' : 'استيراد من Excel'}
+          <input
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                importExcel(file);
+                // allow selecting the same file again later
+                e.target.value = '';
+              }
+            }}
+          />
+        </label>
       </div>
       {msg && <div className="text-sm text-red-600">{msg}</div>}
 
