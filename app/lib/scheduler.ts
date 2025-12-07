@@ -55,6 +55,12 @@ export async function generateRandomSchedule(opts: { year: number; month: number
       : (['Morning', 'Evening'] as ShiftName[]),
   }));
 
+  // Load coverage settings (targets)
+  const { data: settingsRows } = await sb.from('settings').select('key,value');
+  const settingsMap = Object.fromEntries((settingsRows ?? []).map((r: any) => [r.key, r.value]));
+  const targetM = settingsMap.coverageMorning ? Number(settingsMap.coverageMorning) : 0;
+  const targetE = settingsMap.coverageEvening ? Number(settingsMap.coverageEvening) : 0;
+
   // Load existing requests (Vacation / OffRequest) for this month
   const start = startOfMonth(new Date(year, month - 1, 1));
   const end = endOfMonth(start);
@@ -75,35 +81,107 @@ export async function generateRandomSchedule(opts: { year: number; month: number
 
   const rng = seedrandom(String(FIXED_RULES.seed) + `-simple-${year}-${month}`);
 
-  for (const emp of emps) {
-    for (let d = 1; d <= daysInMonth; d++) {
-      const date = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      const jsDate = new Date(year, month - 1, d);
+  // Helper: shuffle array indices for randomness مع أداء بسيط
+  const shuffledIndices = (n: number): number[] => {
+    const arr = Array.from({ length: n }, (_, i) => i);
+    for (let i = n - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  };
 
-      // Friday off by rule
-      if (isFriday(jsDate) && FIXED_RULES.fridayOff) {
-        rows.push({ month_id: monthRow.id, employee_id: emp.id, date, symbol: SPECIAL_SYMBOL.Off, code: SPECIAL_SYMBOL.Off });
-        continue;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const date = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const jsDate = new Date(year, month - 1, d);
+
+    const isFri = isFriday(jsDate) && FIXED_RULES.fridayOff;
+
+    // لكل موظفة: قرر أولاً إذا كانت Vacation/Off/مرشحة للعمل
+    type DayCell = {
+      emp: EmployeeRow;
+      symbol: string | null;
+      fixed: boolean; // true إذا Vacation/Off/Friday
+      canMorning: boolean;
+      canEvening: boolean;
+    };
+    const dayCells: DayCell[] = emps.map((emp) => {
+      const key = `${emp.id}|${date}`;
+      const req = reqByEmpDate.get(key);
+
+      if (isFri) {
+        return {
+          emp,
+          symbol: SPECIAL_SYMBOL.Off,
+          fixed: true,
+          canMorning: false,
+          canEvening: false,
+        };
       }
 
-      // Respect explicit requests first
-      const req = reqByEmpDate.get(`${emp.id}|${date}`);
       if (req === 'Vacation') {
-        rows.push({ month_id: monthRow.id, employee_id: emp.id, date, symbol: SPECIAL_SYMBOL.Vacation, code: SPECIAL_SYMBOL.Vacation });
-        continue;
-      }
-      if (req === 'OffRequest') {
-        rows.push({ month_id: monthRow.id, employee_id: emp.id, date, symbol: SPECIAL_SYMBOL.Off, code: SPECIAL_SYMBOL.Off });
-        continue;
+        return {
+          emp,
+          symbol: SPECIAL_SYMBOL.Vacation,
+          fixed: true,
+          canMorning: false,
+          canEvening: false,
+        };
       }
 
-      // Randomly pick Morning/Evening among allowed_shifts
-      const choices = emp.allowed_shifts.includes('Morning') && emp.allowed_shifts.includes('Evening')
-        ? (rng() < 0.5 ? 'Morning' : 'Evening')
-        : (emp.allowed_shifts[0] ?? 'Morning');
-      const shift: ShiftName = choices as ShiftName;
-      const sym = SHIFT_SYMBOL[emp.employment_type][shift];
-      rows.push({ month_id: monthRow.id, employee_id: emp.id, date, symbol: sym, code: sym });
+      if (req === 'OffRequest') {
+        return {
+          emp,
+          symbol: SPECIAL_SYMBOL.Off,
+          fixed: true,
+          canMorning: false,
+          canEvening: false,
+        };
+      }
+
+      const canMorning = emp.allowed_shifts.includes('Morning');
+      const canEvening = emp.allowed_shifts.includes('Evening');
+      return {
+        emp,
+        symbol: null,
+        fixed: false,
+        canMorning,
+        canEvening,
+      };
+    });
+
+    // عيّن Morning حتى الوصول إلى targetM قدر الإمكان
+    let mAssigned = 0;
+    if (targetM > 0) {
+      const indices = shuffledIndices(dayCells.length);
+      for (const idx of indices) {
+        if (mAssigned >= targetM) break;
+        const cell = dayCells[idx];
+        if (cell.fixed || !cell.canMorning || cell.symbol) continue;
+        const sym = SHIFT_SYMBOL[cell.emp.employment_type]['Morning'];
+        cell.symbol = sym;
+        mAssigned += 1;
+      }
+    }
+
+    // عيّن Evening حتى الوصول إلى targetE قدر الإمكان
+    let eAssigned = 0;
+    if (targetE > 0) {
+      const indices = shuffledIndices(dayCells.length);
+      for (const idx of indices) {
+        if (eAssigned >= targetE) break;
+        const cell = dayCells[idx];
+        if (cell.fixed || !cell.canEvening || cell.symbol) continue;
+        const sym = SHIFT_SYMBOL[cell.emp.employment_type]['Evening'];
+        cell.symbol = sym;
+        eAssigned += 1;
+      }
+    }
+
+    // أي خلية بدون رمز حتى الآن نضعها Off كافتراضي (لمنع فراغات)
+    for (const cell of dayCells) {
+      const sym = cell.symbol ?? SPECIAL_SYMBOL.Off;
+      rows.push({ month_id: monthRow.id, employee_id: cell.emp.id, date, symbol: sym, code: sym });
     }
   }
 
@@ -118,7 +196,7 @@ export async function generateRandomSchedule(opts: { year: number; month: number
     }
   }
 
-  return { ok: true, generated: rows.length };
+  return { ok: true, generated: rows.length, targetM, targetE };
 }
 
 function weekIndexFromSaturday(date: Date): number {
