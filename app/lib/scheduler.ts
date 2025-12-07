@@ -65,9 +65,12 @@ export function generateRandomSchedule(opts: {
   const baseSeed = seed ?? (String(FIXED_RULES.seed) + `-weekly-${year}-${month}`);
   const rng = seedrandom(String(baseSeed));
 
-  // Partition the month into simple calendar weeks by day number:
-  // week 0: days 1-7, week 1: 8-14, week 2: 15-21, week 3: 22-28, week 4: 29-31
-  const getWeekIndex = (day: number) => Math.floor((day - 1) / 7);
+  // Partition the month into calendar weeks من السبت إلى الجمعة
+  // نستخدم weekIndexFromSaturday التي تعتمد على التاريخ الفعلي
+  const getWeekIndex = (day: number) => {
+    const jsDate = new Date(year, month - 1, day);
+    return weekIndexFromSaturday(jsDate);
+  };
 
   // Precompute weekly shift per employee per week index
   const weeklyShiftByEmpWeek = new Map<string, Map<number, ShiftName>>();
