@@ -55,6 +55,8 @@ export async function POST(req: NextRequest) {
       const emps = (employees ?? []) as any[];
 
       // Generate schedule rows using the new pure weekly-random generator
+      // Use a per-call seed so each POST can yield a different schedule
+      const runtimeSeed = `${Date.now()}-${Math.random()}`;
       const rows = generateRandomSchedule({
         employees: emps as any,
         monthId: monthRow.id,
@@ -62,6 +64,7 @@ export async function POST(req: NextRequest) {
         month: Number(finalMonth),
         coverageMorning,
         coverageEvening,
+        seed: runtimeSeed,
       });
 
       // Replace existing assignments for this month

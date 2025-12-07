@@ -53,14 +53,16 @@ export function generateRandomSchedule(opts: {
   month: number; // 1-12
   coverageMorning: number;
   coverageEvening: number;
+  seed?: string | number;
 }): AssignmentInsertRow[] {
-  const { employees, monthId, year, month, coverageMorning, coverageEvening } = opts;
+  const { employees, monthId, year, month, coverageMorning, coverageEvening, seed } = opts;
 
   const daysInMonth = new Date(year, month, 0).getDate();
   const rows: AssignmentInsertRow[] = [];
 
-  // Use a deterministic seed so same (year,month) produces same schedule if desired
-  const rng = seedrandom(String(FIXED_RULES.seed) + `-weekly-${year}-${month}`);
+  // Use provided seed when passed (for per-call randomness); otherwise fall back to deterministic seed
+  const baseSeed = seed ?? (String(FIXED_RULES.seed) + `-weekly-${year}-${month}`);
+  const rng = seedrandom(String(baseSeed));
 
   // Partition the month into simple calendar weeks by day number:
   // week 0: days 1-7, week 1: 8-14, week 2: 15-21, week 3: 22-28, week 4: 29-31
