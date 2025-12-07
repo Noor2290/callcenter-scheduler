@@ -240,7 +240,24 @@ export default function ScheduleGrid() {
                   {headerDays.map((dStr, idx) => {
                     const iso = toISO(data.month.year, data.month.month, Number(dStr));
                     const val = grid[emp.id]?.[iso] ?? '';
-                    const color = val === 'O' ? 'bg-gray-200' : val === 'V' ? 'bg-orange-200' : '';
+                    const upper = val.toString().toUpperCase();
+
+                    // تلوين بحسب نوع الشفت
+                    // صباح: MA*, M*, PT4 → أصفر فاتح
+                    // مساء: EA*, E*, PT5 → أزرق/بنفسجي فاتح
+                    // Off: O → رمادي فاتح
+                    // Vacation: V → برتقالي فاتح
+                    let color = '';
+                    if (upper === 'O') {
+                      color = 'bg-gray-200';
+                    } else if (upper === 'V') {
+                      color = 'bg-orange-200';
+                    } else if (upper.startsWith('M') || upper === 'PT4') {
+                      color = 'bg-yellow-100';
+                    } else if (upper.startsWith('E') || upper === 'PT5') {
+                      color = 'bg-indigo-100';
+                    }
+
                     return (
                       <td key={idx} className={"p-0 text-center " + color}>
                         <input

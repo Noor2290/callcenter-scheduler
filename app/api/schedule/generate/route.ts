@@ -54,6 +54,72 @@ export async function POST(req: NextRequest) {
 
       const emps = (employees ?? []) as any[];
 
+      // Compute previous year/month
+      let prevYear = Number(finalYear);
+      let prevMonth = Number(finalMonth) - 1;
+      if (prevMonth < 1) {
+        prevMonth = 12;
+        prevYear -= 1;
+      }
+
+      // Map from employee_id -> last working shift (Morning/Evening) in the last week of the previous month
+      const prevLastWeekShiftByEmp: Record<string, 'Morning' | 'Evening'> = {};
+
+      // Try to load previous month assignments if a month row exists
+      const { data: prevMonthRow } = await sb
+        .from('months')
+        .select('id, year, month')
+        .eq('year', prevYear)
+        .eq('month', prevMonth)
+        .maybeSingle();
+
+      if (prevMonthRow) {
+        const { data: prevAssignments } = await sb
+          .from('assignments')
+          .select('employee_id, date, symbol')
+          .eq('month_id', prevMonthRow.id)
+          .order('date', { ascending: true });
+
+        if (prevAssignments && prevAssignments.length > 0) {
+          // Determine the last 7 calendar days of the previous month
+          const lastDay = new Date(prevYear, prevMonth, 0).getDate();
+          const lastWeekStartDay = Math.max(1, lastDay - 6);
+
+          const isInLastWeek = (iso: string) => {
+            const [yStr, mStr, dStr] = iso.split('-');
+            const d = Number(dStr);
+            return d >= lastWeekStartDay && d <= lastDay;
+          };
+
+          // For each employee, track last working assignment (Morning/Evening) in that last week
+          const lastByEmp = new Map<string, { date: string; shift: 'Morning' | 'Evening' }>();
+
+          const classifyShift = (symbol: string): 'Morning' | 'Evening' | null => {
+            const upper = symbol.toUpperCase();
+            if (!upper || upper === 'O' || upper === 'V' || upper === 'B') return null;
+            // Heuristic: symbols starting with 'M' are Morning, 'E' are Evening
+            if (upper.startsWith('M')) return 'Morning';
+            if (upper.startsWith('E')) return 'Evening';
+            return null;
+          };
+
+          for (const a of prevAssignments as any[]) {
+            const iso = a.date as string;
+            if (!isInLastWeek(iso)) continue;
+            const shift = classifyShift(String(a.symbol ?? ''));
+            if (!shift) continue;
+            const prev = lastByEmp.get(a.employee_id);
+            if (!prev || iso > prev.date) {
+              lastByEmp.set(a.employee_id, { date: iso, shift });
+            }
+          }
+
+          for (const [empId, info] of lastByEmp.entries()) {
+            prevLastWeekShiftByEmp[empId] = info.shift;
+          }
+        }
+      }
+
       // Generate schedule rows using the new pure weekly-random generator
       // Use a per-call seed so each POST can yield a different schedule
       const runtimeSeed = `${Date.now()}-${Math.random()}`;
@@ -65,6 +131,7 @@ export async function POST(req: NextRequest) {
         coverageMorning,
         coverageEvening,
         seed: runtimeSeed,
+        prevLastWeekShiftByEmp,
       });
 
       // Replace existing assignments for this month

@@ -54,8 +54,9 @@ export function generateRandomSchedule(opts: {
   coverageMorning: number;
   coverageEvening: number;
   seed?: string | number;
+  prevLastWeekShiftByEmp?: Record<string, ShiftName>;
 }): AssignmentInsertRow[] {
-  const { employees, monthId, year, month, coverageMorning, coverageEvening, seed } = opts;
+  const { employees, monthId, year, month, coverageMorning, coverageEvening, seed, prevLastWeekShiftByEmp } = opts;
 
   const daysInMonth = new Date(year, month, 0).getDate();
   const rows: AssignmentInsertRow[] = [];
@@ -79,7 +80,23 @@ export function generateRandomSchedule(opts: {
     }
     const existing = byWeek.get(weekIdx);
     if (existing) return existing;
-    const chosen: ShiftName = rng() < 0.5 ? 'Morning' : 'Evening';
+
+    let chosen: ShiftName;
+
+    // For the first week (weekIdx === 0), try to invert the last-week shift from previous month when provided
+    if (weekIdx === 0 && prevLastWeekShiftByEmp) {
+      const prev = prevLastWeekShiftByEmp[empId];
+      if (prev === 'Morning') {
+        chosen = 'Evening';
+      } else if (prev === 'Evening') {
+        chosen = 'Morning';
+      } else {
+        chosen = rng() < 0.5 ? 'Morning' : 'Evening';
+      }
+    } else {
+      // Other weeks remain purely random as before
+      chosen = rng() < 0.5 ? 'Morning' : 'Evening';
+    }
     byWeek.set(weekIdx, chosen);
     return chosen;
   };
