@@ -43,16 +43,17 @@ function weekIndexFromSaturday(date: Date): number {
   return Math.floor(diffDays / 7);
 }
 
-function baseWeekShift(weekIdx: number): ShiftName {
-  return weekIdx % 2 === 0 ? 'Morning' : 'Evening';
+function baseWeekShift(weekIdx: number, invert: boolean = false): ShiftName {
+  const baseShift = weekIdx % 2 === 0 ? 'Morning' : 'Evening';
+  return invert ? (baseShift === 'Morning' ? 'Evening' : 'Morning') : baseShift;
 }
 
 function symbolFor(empType: EmploymentType, shift: ShiftName): string {
   return SHIFT_SYMBOL[empType][shift];
 }
 
-export async function generateSchedule(opts: { year: number; month: number; useBetween?: boolean; seed?: string | number }) {
-  const { year, month, useBetween = false, seed } = opts;
+export async function generateSchedule(opts: { year: number; month: number; useBetween?: boolean; seed?: string | number; invertFirstWeek?: boolean }) {
+  const { year, month, useBetween = false, seed, invertFirstWeek = false } = opts;
   const sb = supabaseServer();
 
   const rngSeed = (seed ?? FIXED_RULES.seed) + `-${year}-${month}`;
@@ -197,7 +198,9 @@ export async function generateSchedule(opts: { year: number; month: number; useB
   for (const e of emps) empPhase.set(e.id, rng(String('phase-' + e.id)) < 0.5 ? 0 : 1);
 
   for (const [wIdx, wDays] of weeks) {
-    const base = baseWeekShift(wIdx);
+    // إذا كان هذا هو الأسبوع الأول وكان invertFirstWeek = true، نقوم بعكس الوردية
+    const shouldInvert = invertFirstWeek && wIdx === 0;
+    const base = baseWeekShift(wIdx, shouldInvert);
     // Global balancing per week: track OFF load per day (non-Friday) and build a guaranteed extra-off plan
     const weekOffCountByWeekday = new Map<number, number>();
     const nonFridayDays = wDays.filter((d) => !isFriday(d));

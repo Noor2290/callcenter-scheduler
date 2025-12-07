@@ -61,17 +61,35 @@ export default function ScheduleGrid() {
   useEffect(() => { loadMonth(); }, [settings.year, settings.month]);
 
   function generate() {
-    if (!settings.year || !settings.month) { setMsg('Set Year/Month in Settings first'); return; }
-    setMsg(null);
-    startTransition(async () => {
-      const res = await fetch('/api/schedule/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ year: settings.year, month: settings.month, seed: `${Date.now()}-${Math.random()}` })
-      });
-      const json = await res.json();
-      if (!res.ok) { setMsg(json.error || 'Failed to generate'); return; }
+    if (!settings.year || !settings.month) { 
+      setMsg('الرجاء تحديد السنة والشهر أولاً'); 
+      return; 
+    }
+    
+    setMsg('جاري إنشاء جدول جديد...');
+    
+    // استخدام بذرة عشوائية فريدة في كل مرة لضمان اختلاف الجداول
+    const seed = `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    fetch('/api/schedule/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        year: settings.year, 
+        month: settings.month, 
+        seed: seed,
+        invertFirstWeek: true // الحفاظ على عكس الوردية للأسبوع الأول
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.error) throw new Error(data.error);
       loadMonth();
+      setMsg('تم إنشاء الجدول بنجاح. يمكنك تعديله يدوياً إذا لزم الأمر.');
+    })
+    .catch(err => {
+      console.error('Error generating schedule:', err);
+      setMsg('حدث خطأ أثناء إنشاء الجدول: ' + (err.message || 'غير معروف'));
     });
   }
 
@@ -135,7 +153,23 @@ export default function ScheduleGrid() {
         </div>
       )}
       <div className="flex gap-2">
-        <button onClick={generate} className="px-4 py-2 bg-indigo-600 text-white rounded disabled:opacity-60" disabled={isPending}>توليد الجدول</button>
+        <button 
+          onClick={generate} 
+          className="px-4 py-2 bg-indigo-600 text-white rounded disabled:opacity-60 flex items-center gap-2" 
+          disabled={isPending}
+        >
+          {isPending ? (
+            <>
+              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              جاري التوليد...
+            </>
+          ) : (
+            'توليد جدول'
+          )}
+        </button>
         <button onClick={saveChanges} className="px-4 py-2 bg-teal-600 text-white rounded disabled:opacity-60" disabled={isPending}>حفظ التعديلات</button>
         <button onClick={exportExcel} className="px-4 py-2 bg-emerald-600 text-white rounded">تصدير Excel</button>
       </div>
