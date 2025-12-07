@@ -27,176 +27,122 @@ export type RequestRow = {
   type: 'Vacation' | 'OffRequest';
 };
 
-// Lightweight generator: simple random schedule for a month
-// - Keeps table shape ونفس الرموز (MA/EA/PT/V/O)
-// - يحترم الجمعة أوف + الإجازات/الطلبات الموجودة
-// - يوزع Morning/Evening عشوائياً ضمن allowed_shifts لكل موظفة
-export async function generateRandomSchedule(opts: { year: number; month: number }) {
-  const { year, month } = opts;
-  const sb = supabaseServer();
+// New lightweight generator: pure weekly-random schedule
+// - Does NOT read from Supabase and does NOT depend on generateSchedule
+// - Ignores allowed_shifts, requests, weekend rules, fairness, flips, between-shift, etc.
+// - For every week in the month:
+//   * Each employee gets a single random weekly shift: Morning OR Evening (fixed for that week)
+//   * For each day in that week:
+//       - Randomly pick up to coverageMorning employees whose weekly shift = Morning
+//       - Randomly pick up to coverageEvening employees whose weekly shift = Evening
+//       - All remaining employees get Off (SPECIAL_SYMBOL.Off)
+// - Returns flat rows compatible with the assignments insert format.
 
-  // Ensure month row exists
-  const { data: monthRow, error: monthErr } = await sb
-    .from('months')
-    .upsert({ year, month, seed: FIXED_RULES.seed }, { onConflict: 'year,month' })
-    .select('*')
-    .single();
-  if (monthErr) throw monthErr;
+export type AssignmentInsertRow = {
+  month_id: string;
+  employee_id: string;
+  date: string; // YYYY-MM-DD
+  symbol: string;
+  code: string;
+};
 
-  // Load employees
-  const { data: employees, error: empErr } = await sb
-    .from('employees')
-    .select('id, code, name, employment_type, allowed_shifts');
-  if (empErr) throw empErr;
-  const emps = ((employees ?? []) as EmployeeRow[]).map((e) => ({
-    ...e,
-    allowed_shifts: (e.allowed_shifts && e.allowed_shifts.length > 0)
-      ? e.allowed_shifts
-      : (['Morning', 'Evening'] as ShiftName[]),
-  }));
-
-  // Load coverage settings (targets)
-  const { data: settingsRows } = await sb.from('settings').select('key,value');
-  const settingsMap = Object.fromEntries((settingsRows ?? []).map((r: any) => [r.key, r.value]));
-  const targetM = settingsMap.coverageMorning ? Number(settingsMap.coverageMorning) : 0;
-  const targetE = settingsMap.coverageEvening ? Number(settingsMap.coverageEvening) : 0;
-
-  // Load existing requests (Vacation / OffRequest) for this month
-  const start = startOfMonth(new Date(year, month - 1, 1));
-  const end = endOfMonth(start);
-  const { data: reqs, error: reqErr } = await sb
-    .from('requests')
-    .select('id, employee_id, date, type')
-    .gte('date', format(start, 'yyyy-MM-dd'))
-    .lte('date', format(end, 'yyyy-MM-dd'));
-  if (reqErr) throw reqErr;
-  const requests = (reqs ?? []) as RequestRow[];
-  const reqByEmpDate = new Map<string, 'Vacation' | 'OffRequest'>();
-  for (const r of requests) {
-    reqByEmpDate.set(`${r.employee_id}|${r.date}`, r.type);
-  }
+export function generateRandomSchedule(opts: {
+  employees: EmployeeRow[];
+  monthId: string;
+  year: number;
+  month: number; // 1-12
+  coverageMorning: number;
+  coverageEvening: number;
+}): AssignmentInsertRow[] {
+  const { employees, monthId, year, month, coverageMorning, coverageEvening } = opts;
 
   const daysInMonth = new Date(year, month, 0).getDate();
-  const rows: { month_id: string; employee_id: string; date: string; symbol: string; code: string }[] = [];
+  const rows: AssignmentInsertRow[] = [];
 
-  const rng = seedrandom(String(FIXED_RULES.seed) + `-simple-${year}-${month}`);
+  // Use a deterministic seed so same (year,month) produces same schedule if desired
+  const rng = seedrandom(String(FIXED_RULES.seed) + `-weekly-${year}-${month}`);
 
-  // Helper: shuffle array indices for randomness مع أداء بسيط
-  const shuffledIndices = (n: number): number[] => {
-    const arr = Array.from({ length: n }, (_, i) => i);
-    for (let i = n - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
+  // Partition the month into simple calendar weeks by day number:
+  // week 0: days 1-7, week 1: 8-14, week 2: 15-21, week 3: 22-28, week 4: 29-31
+  const getWeekIndex = (day: number) => Math.floor((day - 1) / 7);
+
+  // Precompute weekly shift per employee per week index
+  const weeklyShiftByEmpWeek = new Map<string, Map<number, ShiftName>>();
+
+  const getWeeklyShift = (empId: string, weekIdx: number): ShiftName => {
+    let byWeek = weeklyShiftByEmpWeek.get(empId);
+    if (!byWeek) {
+      byWeek = new Map<number, ShiftName>();
+      weeklyShiftByEmpWeek.set(empId, byWeek);
     }
-    return arr;
+    const existing = byWeek.get(weekIdx);
+    if (existing) return existing;
+    const chosen: ShiftName = rng() < 0.5 ? 'Morning' : 'Evening';
+    byWeek.set(weekIdx, chosen);
+    return chosen;
   };
 
-  for (let d = 1; d <= daysInMonth; d++) {
-    const date = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    const jsDate = new Date(year, month - 1, d);
+  const pad2 = (n: number) => String(n).padStart(2, '0');
 
-    const isFri = isFriday(jsDate) && FIXED_RULES.fridayOff;
+  for (let day = 1; day <= daysInMonth; day++) {
+    const weekIdx = getWeekIndex(day);
+    const isoDate = `${year}-${pad2(month)}-${pad2(day)}`;
 
-    // لكل موظفة: قرر أولاً إذا كانت Vacation/Off/مرشحة للعمل
-    type DayCell = {
-      emp: EmployeeRow;
-      symbol: string | null;
-      fixed: boolean; // true إذا Vacation/Off/Friday
-      canMorning: boolean;
-      canEvening: boolean;
+    // Bucket employees by their weekly shift for this week
+    const morningEmps: EmployeeRow[] = [];
+    const eveningEmps: EmployeeRow[] = [];
+
+    for (const emp of employees) {
+      const wShift = getWeeklyShift(emp.id, weekIdx);
+      if (wShift === 'Morning') {
+        morningEmps.push(emp);
+      } else {
+        eveningEmps.push(emp);
+      }
+    }
+
+    // Helper: random subset (no fairness, pure random)
+    const pickRandom = (list: EmployeeRow[], limit: number): Set<string> => {
+      const n = list.length;
+      const count = Math.min(limit, n);
+      const indices = Array.from({ length: n }, (_, i) => i);
+      for (let i = n - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        [indices[i], indices[j]] = [indices[j], indices[i]];
+      }
+      const chosen = new Set<string>();
+      for (let k = 0; k < count; k++) {
+        const idx = indices[k];
+        const emp = list[idx];
+        chosen.add(emp.id);
+      }
+      return chosen;
     };
-    const dayCells: DayCell[] = emps.map((emp) => {
-      const key = `${emp.id}|${date}`;
-      const req = reqByEmpDate.get(key);
 
-      if (isFri) {
-        return {
-          emp,
-          symbol: SPECIAL_SYMBOL.Off,
-          fixed: true,
-          canMorning: false,
-          canEvening: false,
-        };
+    const morningChosen = pickRandom(morningEmps, coverageMorning);
+    const eveningChosen = pickRandom(eveningEmps, coverageEvening);
+
+    for (const emp of employees) {
+      let symbol: string;
+      if (morningChosen.has(emp.id)) {
+        symbol = SHIFT_SYMBOL[emp.employment_type]['Morning'];
+      } else if (eveningChosen.has(emp.id)) {
+        symbol = SHIFT_SYMBOL[emp.employment_type]['Evening'];
+      } else {
+        symbol = SPECIAL_SYMBOL.Off;
       }
 
-      if (req === 'Vacation') {
-        return {
-          emp,
-          symbol: SPECIAL_SYMBOL.Vacation,
-          fixed: true,
-          canMorning: false,
-          canEvening: false,
-        };
-      }
-
-      if (req === 'OffRequest') {
-        return {
-          emp,
-          symbol: SPECIAL_SYMBOL.Off,
-          fixed: true,
-          canMorning: false,
-          canEvening: false,
-        };
-      }
-
-      const canMorning = emp.allowed_shifts.includes('Morning');
-      const canEvening = emp.allowed_shifts.includes('Evening');
-      return {
-        emp,
-        symbol: null,
-        fixed: false,
-        canMorning,
-        canEvening,
-      };
-    });
-
-    // عيّن Morning حتى الوصول إلى targetM قدر الإمكان
-    let mAssigned = 0;
-    if (targetM > 0) {
-      const indices = shuffledIndices(dayCells.length);
-      for (const idx of indices) {
-        if (mAssigned >= targetM) break;
-        const cell = dayCells[idx];
-        if (cell.fixed || !cell.canMorning || cell.symbol) continue;
-        const sym = SHIFT_SYMBOL[cell.emp.employment_type]['Morning'];
-        cell.symbol = sym;
-        mAssigned += 1;
-      }
-    }
-
-    // عيّن Evening حتى الوصول إلى targetE قدر الإمكان
-    let eAssigned = 0;
-    if (targetE > 0) {
-      const indices = shuffledIndices(dayCells.length);
-      for (const idx of indices) {
-        if (eAssigned >= targetE) break;
-        const cell = dayCells[idx];
-        if (cell.fixed || !cell.canEvening || cell.symbol) continue;
-        const sym = SHIFT_SYMBOL[cell.emp.employment_type]['Evening'];
-        cell.symbol = sym;
-        eAssigned += 1;
-      }
-    }
-
-    // أي خلية بدون رمز حتى الآن نضعها Off كافتراضي (لمنع فراغات)
-    for (const cell of dayCells) {
-      const sym = cell.symbol ?? SPECIAL_SYMBOL.Off;
-      rows.push({ month_id: monthRow.id, employee_id: cell.emp.id, date, symbol: sym, code: sym });
+      rows.push({
+        month_id: monthId,
+        employee_id: emp.id,
+        date: isoDate,
+        symbol,
+        code: symbol,
+      });
     }
   }
 
-  // Replace existing assignments for this month
-  await sb.from('assignments').delete().eq('month_id', monthRow.id);
-  if (rows.length > 0) {
-    const BATCH = 500;
-    for (let i = 0; i < rows.length; i += BATCH) {
-      const chunk = rows.slice(i, i + BATCH);
-      const { error: insErr } = await sb.from('assignments').insert(chunk as any);
-      if (insErr) throw insErr;
-    }
-  }
-
-  return { ok: true, generated: rows.length, targetM, targetE };
+  return rows;
 }
 
 function weekIndexFromSaturday(date: Date): number {
