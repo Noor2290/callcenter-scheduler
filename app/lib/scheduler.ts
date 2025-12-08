@@ -181,9 +181,10 @@ export async function generateSchedule({ year, month }: { year: number; month: n
     const saturdayISO = saturdayInWeek ? format(saturdayInWeek, "yyyy-MM-dd") : null;
 
     for (const emp of shuffledEmps) {
-      if (emp.id === MARWA_ID && saturdayISO) {
+      const empIdStr = String(emp.id);
+      if (empIdStr === MARWA_ID && saturdayISO) {
         // مروه أوفها السبت
-        offMap.set(emp.id, saturdayISO);
+        offMap.set(empIdStr, saturdayISO);
         dayOffCount.set(saturdayISO, (dayOffCount.get(saturdayISO) || 0) + 1);
       } else {
         // اختر اليوم اللي فيه أقل عدد OFF (مع عدم تجاوز الحد الأقصى)
@@ -212,7 +213,7 @@ export async function generateSchedule({ year, month }: { year: number; month: n
         }
 
         if (bestDay) {
-          offMap.set(emp.id, bestDay);
+          offMap.set(empIdStr, bestDay);
           dayOffCount.set(bestDay, (dayOffCount.get(bestDay) || 0) + 1);
         }
       }
@@ -242,14 +243,14 @@ export async function generateSchedule({ year, month }: { year: number; month: n
     const offMapThisWeek = weeklyOffDay.get(wIdx) || new Map();
     const offSet = new Set<string>();
     for (const [empId, offDate] of offMapThisWeek) {
-      if (offDate === iso) offSet.add(empId);
+      if (offDate === iso) offSet.add(String(empId));
     }
 
     // ==========================
     //     توزيع Morning / Evening حسب الإعدادات
     // ==========================
 
-    const available = employees.filter((e: any) => !offSet.has(e.id));
+    const available = employees.filter((e: any) => !offSet.has(String(e.id)));
 
     // --- اختر morning ---
     const morningStaff = randomPick(available, rng, coverageMorning);
@@ -258,20 +259,21 @@ export async function generateSchedule({ year, month }: { year: number; month: n
     // --- اختر evening ---
     const eveningStaff = randomPick(remainingAfterMorning, rng, coverageEvening);
 
-    const morningSet = new Set(morningStaff.map((e: any) => e.id));
-    const eveningSet = new Set(eveningStaff.map((e: any) => e.id));
+    const morningSet = new Set(morningStaff.map((e: any) => String(e.id)));
+    const eveningSet = new Set(eveningStaff.map((e: any) => String(e.id)));
 
     // ==========================
     //     Apply final assignments
     // ==========================
     for (const emp of employees) {
       let symbol = OFF;
+      const empIdStr = String(emp.id);
 
-      if (!offSet.has(emp.id)) {
+      if (!offSet.has(empIdStr)) {
         let finalShift: "Morning" | "Evening" = "Evening";
 
-        if (morningSet.has(emp.id)) finalShift = "Morning";
-        else if (eveningSet.has(emp.id)) finalShift = "Evening";
+        if (morningSet.has(empIdStr)) finalShift = "Morning";
+        else if (eveningSet.has(empIdStr)) finalShift = "Evening";
         else {
           // موظفات زائدات → وزّعيهم حسب الأسبوع
           finalShift = getWeeklyShift(emp.id, wIdx);
