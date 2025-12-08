@@ -7,7 +7,6 @@ import supabaseServer from "@/app/lib/supabaseServer";
 // ******************************
 
 const MARWA_ID = "3864"; // مروه
-const PART_TIME_CODE = "ولاء الشرفي"; // اسم ولاء أو استخدمي ID لو تريدين
 
 const MORNING_CODE_FT = "MA1";
 const EVENING_CODE_FT = "EA1";
@@ -48,35 +47,33 @@ function randomPick(arr: any[], rng: any, count: number) {
 export async function generateSchedule({ year, month }: { year: number; month: number }) {
   const sb = supabaseServer();
 
-  // ----------- استخدم seed جديد لكل توليد -----------
   const rng = seedrandom(`${year}-${month}-${Date.now()}`);
 
-  // ----------- تأكد من وجود row في months -----------
+  // ----------- months row -----------
   const { data: monthRow, error: mErr } = await sb
     .from("months")
     .upsert({ year, month }, { onConflict: "year,month" })
     .select("*")
     .single();
-
   if (mErr) throw mErr;
 
-  // ----------- جلب الموظفات -----------
+  // ----------- employees -----------
   const { data: employees } = await sb
     .from("employees")
     .select("*")
     .order("name", { ascending: true });
 
-  // ----------- تحديد الموظفات Part-Time بناءً على نوع التوظيف -----------
+  // أي موظفة Part-Time بناء على نوع التوظيف فقط
   const isPartTime = (emp: any) => emp.employment_type === "PartTime";
 
-  // ----------- جلب تغطية الشفتات من الإعدادات -----------
+  // ----------- settings -----------
   const { data: settings } = await sb.from("settings").select("key,value");
   const map = Object.fromEntries(settings.map((s) => [s.key, s.value]));
 
   const coverageMorning = Number(map.morningCoverage) || Number(map.coverageMorning) || 5;
   const coverageEvening = Number(map.eveningCoverage) || Number(map.coverageEvening) || 6;
 
-  // ----------- قراءة آخر أسبوع من الشهر السابق لعكس الشفتات -----------
+  // ----------- previous month flip -----------
   const prevMonth = month === 1 ? 12 : month - 1;
   const prevYear = month === 1 ? year - 1 : year;
 
@@ -90,6 +87,7 @@ export async function generateSchedule({ year, month }: { year: number; month: n
   if (prevAssignments) {
     for (const a of prevAssignments) {
       const sym = a.symbol;
+
       if (sym === OFF || sym === VAC) continue;
 
       let shift: "Morning" | "Evening" | null = null;
@@ -100,19 +98,16 @@ export async function generateSchedule({ year, month }: { year: number; month: n
     }
   }
 
-  // ----------- تجهيز التواريخ -----------
+  // ----------- prepare dates -----------
   const start = startOfMonth(new Date(year, month - 1, 1));
   const end = endOfMonth(start);
   const days = eachDayOfInterval({ start, end });
 
-  // ----------- تتبع شفتات الأسابيع الجديدة -----------
-  const weeklyShift = new Map<string, ("Morning" | "Evening")[]>(); // لكل موظف التاريخ الأسبوعي
+  const weeklyShift = new Map<string, ("Morning" | "Evening")[]>();
 
-  // ----------- تحديد الشفت لكل موظف أسبوعيًا -----------
   const getWeeklyShift = (empId: string, wIdx: number) => {
     const arr = weeklyShift.get(empId) || [];
 
-    // أول أسبوع = قلب آخر أسبوع سابق
     if (wIdx === 0 && prevShift.has(empId)) {
       const ps = prevShift.get(empId)!;
       const flipped = ps === "Morning" ? "Evening" : "Morning";
@@ -121,10 +116,8 @@ export async function generateSchedule({ year, month }: { year: number; month: n
       return flipped;
     }
 
-    // إذا موجود سابقًا
     if (arr[wIdx]) return arr[wIdx];
 
-    // لو آخر أسبوعين متشابهين → قلب
     if (arr.length >= 2 && arr[arr.length - 1] === arr[arr.length - 2]) {
       const flipped = arr[arr.length - 1] === "Morning" ? "Evening" : "Morning";
       arr[wIdx] = flipped;
@@ -132,14 +125,16 @@ export async function generateSchedule({ year, month }: { year: number; month: n
       return flipped;
     }
 
-    // عشوائي Morning / Evening
     const picked = rng() < 0.5 ? "Morning" : "Evening";
     arr[wIdx] = picked;
     weeklyShift.set(empId, arr);
     return picked;
   };
 
-  // ----------- إنتاج جدول العمل -----------
+  // **********************************************
+  //          GENERATE DAILY ASSIGNMENTS
+  // **********************************************
+
   const rows: any[] = [];
 
   for (const day of days) {
@@ -147,27 +142,22 @@ export async function generateSchedule({ year, month }: { year: number; month: n
     const dow = getDay(day);
     const wIdx = getWeekIndex(day);
 
-    // الجمعة OFF للجميع
+    // -------- الجمعة OFF للجميع --------
     if (dow === 5) {
       for (const emp of employees) {
-        rows.push({
-          month_id: monthRow.id,
-          employee_id: emp.id,
-          date: iso,
-          symbol: OFF,
-          code: OFF,
-        });
+        rows.push({ month_id: monthRow.id, employee_id: emp.id, date: iso, symbol: OFF, code: OFF });
       }
       continue;
     }
 
-    // السبت OFF لمروه فقط
+    // -------- السبت OFF لمروه فقط --------
     if (dow === 6) {
       for (const emp of employees) {
         if (emp.id === MARWA_ID)
           rows.push({ month_id: monthRow.id, employee_id: emp.id, date: iso, symbol: OFF, code: OFF });
         else {
           const shift = getWeeklyShift(emp.id, wIdx);
+
           const symbol = isPartTime(emp)
             ? shift === "Morning"
               ? MORNING_CODE_PT
@@ -182,43 +172,58 @@ export async function generateSchedule({ year, month }: { year: number; month: n
       continue;
     }
 
-    // ---- توزيع OFF ----
+    // ==========================
+    //      توزيع OFF (2)
+    // ==========================
     const offList = randomPick(
       employees.filter((e) => e.id !== MARWA_ID),
       rng,
       2
     );
-
     const offSet = new Set(offList.map((e) => e.id));
 
-    // ---- توزيع الصباح / المساء حسب التغطية ----
-    const candidates = employees.filter((e) => !offSet.has(e.id));
-    const morningStaff = randomPick(candidates, rng, coverageMorning);
-    const morningSet = new Set(morningStaff.map((e) => e.id));
+    // ==========================
+    //     توزيع Morning / Evening حسب الإعدادات
+    // ==========================
 
+    const available = employees.filter((e) => !offSet.has(e.id));
+
+    // --- اختر morning ---
+    const morningStaff = randomPick(available, rng, coverageMorning);
+    const remainingAfterMorning = available.filter(e => !morningStaff.includes(e));
+
+    // --- اختر evening ---
+    const eveningStaff = randomPick(remainingAfterMorning, rng, coverageEvening);
+
+    const morningSet = new Set(morningStaff.map(e => e.id));
+    const eveningSet = new Set(eveningStaff.map(e => e.id));
+
+    // ==========================
+    //     Apply final assignments
+    // ==========================
     for (const emp of employees) {
       let symbol = OFF;
 
-      if (offSet.has(emp.id)) {
-        symbol = OFF;
-      } else {
-        const weekly = getWeeklyShift(emp.id, wIdx);
-        const isMorning = morningSet.has(emp.id);
+      if (!offSet.has(emp.id)) {
+        let finalShift: "Morning" | "Evening" = "Evening";
 
-        const finalShift = isMorning ? "Morning" : "Evening";
+        if (morningSet.has(emp.id)) finalShift = "Morning";
+        else if (eveningSet.has(emp.id)) finalShift = "Evening";
+        else {
+          // موظفات زائدات → وزّعيهم حسب الأسبوع
+          finalShift = getWeeklyShift(emp.id, wIdx);
+        }
 
-        if (isPartTime(emp))
-          symbol = finalShift === "Morning" ? MORNING_CODE_PT : EVENING_CODE_PT;
-        else symbol = finalShift === "Morning" ? MORNING_CODE_FT : EVENING_CODE_FT;
+        symbol = isPartTime(emp)
+          ? finalShift === "Morning"
+            ? MORNING_CODE_PT
+            : EVENING_CODE_PT
+          : finalShift === "Morning"
+          ? MORNING_CODE_FT
+          : EVENING_CODE_FT;
       }
 
-      rows.push({
-        month_id: monthRow.id,
-        employee_id: emp.id,
-        date: iso,
-        symbol,
-        code: symbol,
-      });
+      rows.push({ month_id: monthRow.id, employee_id: emp.id, date: iso, symbol, code: symbol });
     }
   }
 
