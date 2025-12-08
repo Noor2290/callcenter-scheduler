@@ -149,8 +149,31 @@ export async function generateSchedule({
   const end = endOfMonth(start);
   const days = eachDayOfInterval({ start, end });
   
-  // Get unique week indices for this month
-  const weekIndices = [...new Set(days.map(d => globalWeekIndex(d)))].sort((a, b) => a - b);
+  // Find the first Saturday of the month (or use first day if month starts on Saturday)
+  const firstDayDow = getDay(start);
+  const firstSaturday = firstDayDow === 6 ? start : 
+    new Date(start.getFullYear(), start.getMonth(), start.getDate() + (6 - firstDayDow + 7) % 7);
+  
+  // Get the week index of the first Saturday (this will be our "Week 1")
+  const firstFullWeekIdx = globalWeekIndex(firstSaturday);
+  
+  // For days before the first Saturday, we'll use the same week index as the first Saturday
+  // This ensures the partial week at the start is treated as part of Week 1
+  const getEffectiveWeekIdx = (date: Date): number => {
+    const actualWeekIdx = globalWeekIndex(date);
+    // If this day is before the first Saturday, use the first Saturday's week
+    if (date < firstSaturday) {
+      return firstFullWeekIdx;
+    }
+    return actualWeekIdx;
+  };
+  
+  // Get unique EFFECTIVE week indices for this month
+  const weekIndices = [...new Set(days.map(d => getEffectiveWeekIdx(d)))].sort((a, b) => a - b);
+  
+  console.log('[generateSchedule] First day of month:', format(start, 'yyyy-MM-dd'), 'dow=', firstDayDow);
+  console.log('[generateSchedule] First Saturday:', format(firstSaturday, 'yyyy-MM-dd'));
+  console.log('[generateSchedule] Week indices in month:', weekIndices);
   
   // =========================================================
   // STEP 3: Load previous month data for continuity
@@ -388,7 +411,7 @@ export async function generateSchedule({
     const dow = getDay(d);
     if (dow === 5) continue; // Skip Friday
     
-    const wIdx = globalWeekIndex(d);
+    const wIdx = getEffectiveWeekIdx(d);
     if (!weekDayGroups.has(wIdx)) weekDayGroups.set(wIdx, []);
     weekDayGroups.get(wIdx)!.push(format(d, "yyyy-MM-dd"));
   }
@@ -456,7 +479,7 @@ export async function generateSchedule({
   for (const day of days) {
     const iso = format(day, "yyyy-MM-dd");
     const dow = getDay(day);
-    const weekIdx = globalWeekIndex(day);
+    const weekIdx = getEffectiveWeekIdx(day);
     
     // Friday = OFF for everyone
     if (dow === 5) {
