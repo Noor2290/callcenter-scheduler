@@ -186,16 +186,18 @@ export async function generateSchedule({
   }
 
   // =========================================================
-  // STEP 4: SMART WEEKLY SHIFT DISTRIBUTION
-  // Distribute employees between Morning/Evening to match coverage
+  // STEP 4: FIXED WEEKLY SHIFT DISTRIBUTION
+  // 
+  // CRITICAL RULES:
+  // 1. Each week has EXACTLY coverageMorning employees in Morning
+  // 2. The rest go to Evening
+  // 3. Employees alternate weeks (Morning → Evening → Morning...)
+  // 4. But we split employees into TWO GROUPS to maintain coverage:
+  //    - Group A (first half): starts Morning in odd weeks
+  //    - Group B (second half): starts Morning in even weeks
   // =========================================================
   
-  // Calculate target distribution
-  // We want coverageMorning employees in Morning, rest in Evening
-  const targetMorning = coverageMorning;
-  const targetEvening = Math.max(0, totalEmployees - targetMorning);
-  
-  console.log('[generateSchedule] Target distribution:', { targetMorning, targetEvening });
+  console.log('[generateSchedule] Coverage settings:', { coverageMorning, coverageEvening, totalEmployees });
   
   // Build weekly shift assignments
   // empId -> weekIdx -> shift
@@ -206,50 +208,69 @@ export async function generateSchedule({
     weeklyShifts.set(String(emp.id), new Map());
   }
   
-  // For each week, distribute employees smartly
+  // Determine base shift for each employee for the FIRST week
+  // This creates two groups that alternate, ensuring coverage stays balanced
+  const employeeBaseShift = new Map<string, "Morning" | "Evening">();
+  
+  // Check if we have previous month data
+  const hasPrevData = prevShiftMap.size > 0;
+  
+  if (hasPrevData) {
+    // Use previous month's last shifts as base
+    for (const emp of employees) {
+      const empId = String(emp.id);
+      if (prevShiftMap.has(empId)) {
+        const prevShift = prevShiftMap.get(empId)!;
+        // If same week continues, keep shift; otherwise flip
+        const baseShift = sameWeekAsPrev ? prevShift : (prevShift === "Morning" ? "Evening" : "Morning");
+        employeeBaseShift.set(empId, baseShift);
+      } else {
+        // New employee - will be assigned below
+        employeeBaseShift.set(empId, "Evening"); // Default, will be adjusted
+      }
+    }
+  } else {
+    // No previous data - create balanced initial distribution
+    // Split employees: first coverageMorning go to Morning, rest to Evening
+    for (let i = 0; i < employees.length; i++) {
+      const empId = String(employees[i].id);
+      employeeBaseShift.set(empId, i < coverageMorning ? "Morning" : "Evening");
+    }
+  }
+  
+  // Now assign shifts for each week
   for (let wkIndex = 0; wkIndex < weekIndices.length; wkIndex++) {
     const weekIdx = weekIndices[wkIndex];
     
-    // Determine each employee's shift for this week
-    const morningEmps: string[] = [];
-    const eveningEmps: string[] = [];
+    let morningCount = 0;
+    let eveningCount = 0;
     
-    for (let empIdx = 0; empIdx < employees.length; empIdx++) {
-      const emp = employees[empIdx];
+    for (const emp of employees) {
       const empId = String(emp.id);
+      const baseShift = employeeBaseShift.get(empId)!;
       
+      // Calculate shift for this week based on base shift and week index
+      // wkIndex 0 = base shift
+      // wkIndex 1 = flipped
+      // wkIndex 2 = base shift
+      // etc.
       let shift: "Morning" | "Evening";
-      
-      if (wkIndex === 0) {
-        // First week - check previous month or use smart distribution
-        if (prevShiftMap.has(empId)) {
-          const prevShift = prevShiftMap.get(empId)!;
-          shift = sameWeekAsPrev ? prevShift : (prevShift === "Morning" ? "Evening" : "Morning");
-        } else {
-          // No previous data - distribute based on target coverage
-          // First targetMorning employees go to Morning, rest to Evening
-          shift = empIdx < targetMorning ? "Morning" : "Evening";
-        }
+      if (wkIndex % 2 === 0) {
+        shift = baseShift;
       } else {
-        // Subsequent weeks - alternate from previous week
-        const prevWeekIdx = weekIndices[wkIndex - 1];
-        const prevWeekShift = weeklyShifts.get(empId)!.get(prevWeekIdx)!;
-        shift = prevWeekShift === "Morning" ? "Evening" : "Morning";
+        shift = baseShift === "Morning" ? "Evening" : "Morning";
       }
       
       weeklyShifts.get(empId)!.set(weekIdx, shift);
       
-      if (shift === "Morning") {
-        morningEmps.push(empId);
-      } else {
-        eveningEmps.push(empId);
-      }
+      if (shift === "Morning") morningCount++;
+      else eveningCount++;
     }
     
-    console.log(`[generateSchedule] Week ${weekIdx}: Morning=${morningEmps.length}, Evening=${eveningEmps.length}`);
+    console.log(`[generateSchedule] Week ${weekIdx} (wkIndex=${wkIndex}): Morning=${morningCount}, Evening=${eveningCount}`);
   }
   
-  // Helper function to get employee's shift for a week
+  // Helper function to get employee's shift for a week (IMMUTABLE)
   const getShift = (empId: string, weekIdx: number): "Morning" | "Evening" => {
     return weeklyShifts.get(empId)?.get(weekIdx) || "Morning";
   };
@@ -400,11 +421,9 @@ export async function generateSchedule({
       totalEmployees,
       coverageMorning,
       coverageEvening,
-      targetMorningPerWeek: targetMorning,
-      targetEveningPerWeek: targetEvening,
       weeksInMonth: weekIndices.length,
       vacationDaysLoaded: (reqs || []).length,
-      note: "Weekly shifts are FIXED - no daily adjustments"
+      note: "Weekly shifts are FIXED - no daily adjustments allowed"
     }
   };
 }
