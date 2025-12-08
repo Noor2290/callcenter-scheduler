@@ -1,8 +1,11 @@
 // -----------------------------------------------------------
-//  GENERATE SCHEDULE — FINAL VERSION (Hospital-Grade)
-//  Weekly fixed shifts: Week Morning → Week Evening → repeat
-//  OFF once per week, VAC overrides, coverage auto-fix
-//  CONTINUOUS WEEKS: weekIndex is global across months
+//  GENERATE SCHEDULE — HOSPITAL-GRADE v2.0
+//  
+//  CORE PRINCIPLE: Weekly shift is SACRED and IMMUTABLE
+//  - Employee's weekly shift (Morning/Evening) NEVER changes within a week
+//  - Daily coverage shortages due to OFF/VAC are ACCEPTABLE
+//  - Smart weekly distribution ensures balanced coverage
+//  - NO daily shift swapping allowed
 // -----------------------------------------------------------
 
 import {
@@ -10,9 +13,7 @@ import {
   endOfMonth,
   eachDayOfInterval,
   format,
-  getDay,
-  startOfWeek,
-  differenceInWeeks
+  getDay
 } from "date-fns";
 
 import supabaseServer from "@/app/lib/supabaseServer";
@@ -32,27 +33,24 @@ const MARWA_ID = "3864";
 // -----------------------------------------------------------
 // Helper: Global week index (continuous across months)
 // Week starts on Saturday (dow=6)
-// Base date: 2020-01-04 (first Saturday of 2020)
 // -----------------------------------------------------------
 const EPOCH_SATURDAY = new Date(2020, 0, 4); // Jan 4, 2020 = Saturday
 
 function globalWeekIndex(date: Date): number {
-  // Get the Saturday of the week containing this date
-  const dow = getDay(date); // 0=Sun, 6=Sat
-  const daysFromSat = (dow + 1) % 7; // Saturday=0, Sun=1, Mon=2...
+  const dow = getDay(date);
+  const daysFromSat = (dow + 1) % 7;
   const weekStart = new Date(date);
   weekStart.setDate(date.getDate() - daysFromSat);
   weekStart.setHours(0, 0, 0, 0);
   
-  // Calculate weeks since epoch
   const diffMs = weekStart.getTime() - EPOCH_SATURDAY.getTime();
   return Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000));
 }
 
 // -----------------------------------------------------------
-// Pick FT/PT symbols
+// Pick FT/PT symbols based on shift
 // -----------------------------------------------------------
-function symbolForShift(emp: any, shift: "Morning" | "Evening") {
+function symbolForShift(emp: any, shift: "Morning" | "Evening"): string {
   if (emp.employment_type === "PartTime") {
     return shift === "Morning" ? PT_M : PT_E;
   }
@@ -60,7 +58,7 @@ function symbolForShift(emp: any, shift: "Morning" | "Evening") {
 }
 
 // -----------------------------------------------------------
-// Determine shift from symbol
+// Determine shift from symbol (for reading previous month)
 // -----------------------------------------------------------
 function shiftFromSymbol(symbol: string): "Morning" | "Evening" | null {
   if (!symbol) return null;
@@ -87,7 +85,11 @@ export async function generateSchedule({
 }) {
   const sb = supabaseServer();
 
-  // Load month row
+  // =========================================================
+  // STEP 1: Load all required data
+  // =========================================================
+  
+  // Load/create month row
   const { data: monthRow, error: monthErr } = await sb
     .from("months")
     .upsert({ year, month }, { onConflict: "year,month" })
@@ -98,73 +100,28 @@ export async function generateSchedule({
     throw new Error(monthErr?.message || "Failed to create month row");
   }
 
-  // Employees
+  // Load employees (sorted by name for consistent ordering)
   const { data: empData } = await sb
     .from("employees")
     .select("*")
     .order("name", { ascending: true });
   const employees = empData || [];
+  const totalEmployees = employees.length;
 
-  // Load settings with flexible key matching
-  const { data: settingsData, error: settingsErr } = await sb.from("settings").select("key, value");
-  
-  // Build a normalized map (lowercase keys for flexible matching)
-  const rawMap: Record<string, string> = {};
-  const normalizedMap: Record<string, string> = {};
-  
+  // Load settings
+  const { data: settingsData } = await sb.from("settings").select("key, value");
+  const settingsMap: Record<string, string> = {};
   for (const s of settingsData || []) {
-    if (s.key && s.value !== null && s.value !== undefined) {
-      rawMap[s.key] = s.value;
-      normalizedMap[s.key.toLowerCase().replace(/_/g, '')] = s.value;
+    if (s.key && s.value !== null) {
+      settingsMap[s.key] = s.value;
+      settingsMap[s.key.toLowerCase()] = s.value;
     }
   }
   
-  // Helper to get setting value with multiple key variations
-  const getSetting = (primaryKey: string, ...alternateKeys: string[]): string | undefined => {
-    // Try exact match first
-    if (rawMap[primaryKey] !== undefined) return rawMap[primaryKey];
-    
-    // Try alternate keys
-    for (const key of alternateKeys) {
-      if (rawMap[key] !== undefined) return rawMap[key];
-    }
-    
-    // Try normalized (lowercase, no underscores)
-    const normalized = primaryKey.toLowerCase().replace(/_/g, '');
-    if (normalizedMap[normalized] !== undefined) return normalizedMap[normalized];
-    
-    return undefined;
-  };
+  const coverageMorning = Number(settingsMap['coverageMorning'] || settingsMap['coveragemorning']) || 5;
+  const coverageEvening = Number(settingsMap['coverageEvening'] || settingsMap['coverageevening']) || 6;
   
-  // Get coverage values with flexible key matching
-  const morningValue = getSetting(
-    'coverageMorning',
-    'morningCoverage', 
-    'coverage_morning', 
-    'CoverageMorning',
-    'morning_coverage'
-  );
-  
-  const eveningValue = getSetting(
-    'coverageEvening',
-    'eveningCoverage',
-    'coverage_evening',
-    'CoverageEvening',
-    'evening_coverage'
-  );
-  
-  // Parse values - only use default if key doesn't exist at all
-  const coverageMorning = morningValue !== undefined ? Number(morningValue) : 5;
-  const coverageEvening = eveningValue !== undefined ? Number(eveningValue) : 6;
-  
-  // Log for debugging
-  console.log('[generateSchedule] Settings loaded:', {
-    rawKeys: Object.keys(rawMap),
-    morningValue,
-    eveningValue,
-    coverageMorning,
-    coverageEvening
-  });
+  console.log('[generateSchedule] Coverage settings:', { coverageMorning, coverageEvening, totalEmployees });
 
   // Load vacations
   const { data: reqs } = await sb
@@ -180,20 +137,30 @@ export async function generateSchedule({
     vacationMap.get(id)!.add(iso);
   }
 
-  const isVacation = (id: string, iso: string) =>
-    vacationMap.has(id) && vacationMap.get(id)!.has(iso);
+  const isVacation = (empId: string, dateISO: string): boolean =>
+    vacationMap.has(empId) && vacationMap.get(empId)!.has(dateISO);
 
-  // -----------------------------------------------------------
-  // LOAD PREVIOUS MONTH'S LAST WEEK SHIFTS
-  // -----------------------------------------------------------
+  // =========================================================
+  // STEP 2: Prepare dates and week indices
+  // =========================================================
+  const start = startOfMonth(new Date(year, month - 1, 1));
+  const end = endOfMonth(start);
+  const days = eachDayOfInterval({ start, end });
+  
+  // Get unique week indices for this month
+  const weekIndices = [...new Set(days.map(d => globalWeekIndex(d)))].sort((a, b) => a - b);
+  
+  // =========================================================
+  // STEP 3: Load previous month data for continuity
+  // =========================================================
   const prevMonth = month === 1 ? 12 : month - 1;
   const prevYear = month === 1 ? year - 1 : year;
-  
-  // Get last day of previous month
   const lastDayPrevMonth = endOfMonth(new Date(prevYear, prevMonth - 1, 1));
   const prevWeekIdx = globalWeekIndex(lastDayPrevMonth);
+  const firstWeekIdx = weekIndices[0];
+  const sameWeekAsPrev = firstWeekIdx === prevWeekIdx;
   
-  // Load previous month's assignments for the last week
+  // Load previous month's last shifts
   const { data: prevMonthRow } = await sb
     .from("months")
     .select("id")
@@ -201,240 +168,213 @@ export async function generateSchedule({
     .eq("month", prevMonth)
     .single();
   
-  // Map: empId -> last shift in previous month
   const prevShiftMap = new Map<string, "Morning" | "Evening">();
   
   if (prevMonthRow) {
     const { data: prevAssigns } = await sb
       .from("assignments")
-      .select("employee_id, date, symbol")
+      .select("employee_id, symbol")
       .eq("month_id", prevMonthRow.id)
       .order("date", { ascending: false });
     
-    // Get the last working shift for each employee
     for (const a of prevAssigns || []) {
       const empId = String(a.employee_id);
-      if (prevShiftMap.has(empId)) continue; // already got their last shift
-      
+      if (prevShiftMap.has(empId)) continue;
       const shift = shiftFromSymbol(a.symbol);
-      if (shift) {
-        prevShiftMap.set(empId, shift);
-      }
+      if (shift) prevShiftMap.set(empId, shift);
     }
   }
+
+  // =========================================================
+  // STEP 4: SMART WEEKLY SHIFT DISTRIBUTION
+  // Distribute employees between Morning/Evening to match coverage
+  // =========================================================
   
-  // -----------------------------------------------------------
-  // DETERMINE BASE SHIFT FOR FIRST WEEK
-  // If previous month exists, flip the shift for continuity
-  // -----------------------------------------------------------
-  const firstDayOfMonth = startOfMonth(new Date(year, month - 1, 1));
-  const firstWeekIdx = globalWeekIndex(firstDayOfMonth);
+  // Calculate target distribution
+  // We want coverageMorning employees in Morning, rest in Evening
+  const targetMorning = coverageMorning;
+  const targetEvening = Math.max(0, totalEmployees - targetMorning);
   
-  // Check if first day is in same week as last day of prev month
-  const sameWeekAsPrev = firstWeekIdx === prevWeekIdx;
+  console.log('[generateSchedule] Target distribution:', { targetMorning, targetEvening });
   
-  // Prepare dates first to get all week indices
-  const start = startOfMonth(new Date(year, month - 1, 1));
-  const end = endOfMonth(start);
-  const days = eachDayOfInterval({ start, end });
+  // Build weekly shift assignments
+  // empId -> weekIdx -> shift
+  const weeklyShifts = new Map<string, Map<number, "Morning" | "Evening">>();
   
-  // Get all unique week indices in this month
-  const allWeekIndices = [...new Set(days.map(d => globalWeekIndex(d)))].sort((a, b) => a - b);
+  // Initialize maps for all employees
+  for (const emp of employees) {
+    weeklyShifts.set(String(emp.id), new Map());
+  }
   
-  // Build employee shift map for this month - PRE-CALCULATE ALL WEEKS
-  // empId -> globalWeekIdx -> shift
-  const empWeekShift = new Map<string, Map<number, "Morning" | "Evening">>();
-  
-  for (let empIdx = 0; empIdx < employees.length; empIdx++) {
-    const emp = employees[empIdx];
-    const empId = String(emp.id);
-    const weekMap = new Map<number, "Morning" | "Evening">();
+  // For each week, distribute employees smartly
+  for (let wkIndex = 0; wkIndex < weekIndices.length; wkIndex++) {
+    const weekIdx = weekIndices[wkIndex];
     
-    // Determine first week's shift
-    let firstShift: "Morning" | "Evening";
+    // Determine each employee's shift for this week
+    const morningEmps: string[] = [];
+    const eveningEmps: string[] = [];
     
-    if (prevShiftMap.has(empId)) {
-      const prevShift = prevShiftMap.get(empId)!;
+    for (let empIdx = 0; empIdx < employees.length; empIdx++) {
+      const emp = employees[empIdx];
+      const empId = String(emp.id);
       
-      if (sameWeekAsPrev) {
-        // Same week continues - keep same shift
-        firstShift = prevShift;
+      let shift: "Morning" | "Evening";
+      
+      if (wkIndex === 0) {
+        // First week - check previous month or use smart distribution
+        if (prevShiftMap.has(empId)) {
+          const prevShift = prevShiftMap.get(empId)!;
+          shift = sameWeekAsPrev ? prevShift : (prevShift === "Morning" ? "Evening" : "Morning");
+        } else {
+          // No previous data - distribute based on target coverage
+          // First targetMorning employees go to Morning, rest to Evening
+          shift = empIdx < targetMorning ? "Morning" : "Evening";
+        }
       } else {
-        // New week - flip the shift
-        firstShift = prevShift === "Morning" ? "Evening" : "Morning";
+        // Subsequent weeks - alternate from previous week
+        const prevWeekIdx = weekIndices[wkIndex - 1];
+        const prevWeekShift = weeklyShifts.get(empId)!.get(prevWeekIdx)!;
+        shift = prevWeekShift === "Morning" ? "Evening" : "Morning";
       }
-    } else {
-      // No previous data - use alternating based on employee index and first week
-      firstShift = (empIdx + allWeekIndices[0]) % 2 === 0 ? "Morning" : "Evening";
+      
+      weeklyShifts.get(empId)!.set(weekIdx, shift);
+      
+      if (shift === "Morning") {
+        morningEmps.push(empId);
+      } else {
+        eveningEmps.push(empId);
+      }
     }
     
-    // Now fill ALL weeks with alternating shifts
-    let currentShift = firstShift;
-    for (const wIdx of allWeekIndices) {
-      weekMap.set(wIdx, currentShift);
-      // Flip for next week
-      currentShift = currentShift === "Morning" ? "Evening" : "Morning";
-    }
-    
-    empWeekShift.set(empId, weekMap);
+    console.log(`[generateSchedule] Week ${weekIdx}: Morning=${morningEmps.length}, Evening=${eveningEmps.length}`);
   }
   
-  // Function to get shift for employee in a given week
-  const getWeeklyShift = (empId: string, empIndex: number, weekIdx: number): "Morning" | "Evening" => {
-    const weekMap = empWeekShift.get(empId);
-    if (weekMap && weekMap.has(weekIdx)) {
-      return weekMap.get(weekIdx)!;
-    }
-    // Fallback (should not happen)
-    return (empIndex + weekIdx) % 2 === 0 ? "Morning" : "Evening";
+  // Helper function to get employee's shift for a week
+  const getShift = (empId: string, weekIdx: number): "Morning" | "Evening" => {
+    return weeklyShifts.get(empId)?.get(weekIdx) || "Morning";
   };
 
-  // -----------------------------------------------------------
-  // WEEKLY OFF ASSIGNMENT
-  // -----------------------------------------------------------
-  const weeklyOff = new Map<number, Map<string, string>>();
-
-  for (const d of days) {
-    const wIdx = globalWeekIndex(d);
-    if (!weeklyOff.has(wIdx)) weeklyOff.set(wIdx, new Map());
-  }
-
-  // Assign Fridays OFF
-  for (const d of days) {
-    const dow = getDay(d);
-    const iso = format(d, "yyyy-MM-dd");
-    const wIdx = globalWeekIndex(d);
-
-    if (dow === 5) {
-      employees.forEach((e) => weeklyOff.get(wIdx)!.set(String(e.id), iso));
-      continue;
-    }
-  }
-
-  // Build weekday groups (excluding Friday)
-  const weekGroups = new Map<number, string[]>();
+  // =========================================================
+  // STEP 5: WEEKLY OFF DISTRIBUTION
+  // Each employee gets ONE off day per week (excluding Friday)
+  // Distribute evenly across days to minimize daily impact
+  // =========================================================
+  
+  // weekIdx -> empId -> offDateISO
+  const weeklyOffDays = new Map<number, Map<string, string>>();
+  
+  // Build day groups per week (excluding Fridays)
+  const weekDayGroups = new Map<number, string[]>();
   for (const d of days) {
     const dow = getDay(d);
-    if (dow === 5) continue;
-
+    if (dow === 5) continue; // Skip Friday
+    
     const wIdx = globalWeekIndex(d);
-    if (!weekGroups.has(wIdx)) weekGroups.set(wIdx, []);
-    weekGroups.get(wIdx)!.push(format(d, "yyyy-MM-dd"));
+    if (!weekDayGroups.has(wIdx)) weekDayGroups.set(wIdx, []);
+    weekDayGroups.get(wIdx)!.push(format(d, "yyyy-MM-dd"));
   }
-
-  // Assign OFF weekly
-  for (const [wIdx, dayList] of weekGroups) {
-    const offMap = weeklyOff.get(wIdx)!;
-    const counters = new Map(dayList.map((d) => [d, 0]));
-
-    for (const emp of employees) {
-      const id = String(emp.id);
-
-      // Marwa OFF always Saturday
-      if (id === MARWA_ID) {
-        const sat = dayList.find((d) => getDay(new Date(d)) === 6);
-        if (sat) {
-          offMap.set(id, sat);
-          counters.set(sat, counters.get(sat)! + 1);
-          continue;
-        }
-      }
-
-      // Pick day with least OFF assignments
-      let bestDay = null;
-      let best = Infinity;
-
-      for (const d of dayList) {
-        const c = counters.get(d)!;
-        if (c < best) {
-          best = c;
-          bestDay = d;
-        }
-      }
-
-      offMap.set(id, bestDay!);
-      counters.set(bestDay!, counters.get(bestDay!)! + 1);
+  
+  // Assign OFF days for each week
+  for (const [weekIdx, availableDays] of weekDayGroups) {
+    const offMap = new Map<string, string>();
+    weeklyOffDays.set(weekIdx, offMap);
+    
+    // Count how many OFFs per day (for balancing)
+    const dayOffCount = new Map<string, number>();
+    for (const d of availableDays) {
+      dayOffCount.set(d, 0);
     }
+    
+    // Separate employees by their shift this week for smarter distribution
+    const morningEmps = employees.filter(e => getShift(String(e.id), weekIdx) === "Morning");
+    const eveningEmps = employees.filter(e => getShift(String(e.id), weekIdx) === "Evening");
+    
+    // Assign OFF days - distribute evenly within each shift group
+    const assignOff = (empList: any[]) => {
+      for (const emp of empList) {
+        const empId = String(emp.id);
+        
+        // Marwa always gets Saturday off
+        if (empId === MARWA_ID) {
+          const saturday = availableDays.find(d => getDay(new Date(d)) === 6);
+          if (saturday) {
+            offMap.set(empId, saturday);
+            dayOffCount.set(saturday, dayOffCount.get(saturday)! + 1);
+            continue;
+          }
+        }
+        
+        // Find day with minimum OFF assignments
+        let bestDay = availableDays[0];
+        let minCount = Infinity;
+        
+        for (const d of availableDays) {
+          const count = dayOffCount.get(d)!;
+          if (count < minCount) {
+            minCount = count;
+            bestDay = d;
+          }
+        }
+        
+        offMap.set(empId, bestDay);
+        dayOffCount.set(bestDay, dayOffCount.get(bestDay)! + 1);
+      }
+    };
+    
+    // Assign OFFs for both groups
+    assignOff(morningEmps);
+    assignOff(eveningEmps);
   }
 
-  // -----------------------------------------------------------
-  // BUILD ASSIGNMENTS
-  // -----------------------------------------------------------
+  // =========================================================
+  // STEP 6: BUILD DAILY ASSIGNMENTS
+  // CRITICAL: NO shift swapping allowed here!
+  // Just apply: weekly shift + OFF + VAC
+  // =========================================================
+  
   const rows: any[] = [];
 
   for (const day of days) {
     const iso = format(day, "yyyy-MM-dd");
     const dow = getDay(day);
-    const wIdx = globalWeekIndex(day);
-
-    const offMap = weeklyOff.get(wIdx)!;
-
-    // Friday OFF for all
+    const weekIdx = globalWeekIndex(day);
+    
+    // Friday = OFF for everyone
     if (dow === 5) {
-      employees.forEach((e) =>
+      for (const emp of employees) {
         rows.push({
           month_id: monthRow.id,
-          employee_id: e.id,
+          employee_id: emp.id,
           date: iso,
           symbol: OFF,
           code: OFF
-        })
-      );
+        });
+      }
       continue;
     }
-
-    // OFF + VAC sets
-    const offSet = new Set(
-      [...offMap.entries()]
-        .filter(([_, d]) => d === iso)
-        .map(([id]) => id)
-    );
-
-    const available = employees.filter((e, idx) => {
-      const id = String(e.id);
-      if (offSet.has(id)) return false;
-      if (isVacation(id, iso)) return false;
-      return true;
-    });
-
-    // Weekly shift base assignment
-    let morning: any[] = [];
-    let evening: any[] = [];
-
-    employees.forEach((emp, i) => {
-      const id = String(emp.id);
-      if (offSet.has(id) || isVacation(id, iso)) return;
-
-      const shift = getWeeklyShift(id, i, wIdx);
-      if (shift === "Morning") morning.push(emp);
-      else evening.push(emp);
-    });
-
-    // Coverage fix
-    while (morning.length < coverageMorning && evening.length > 0) {
-      morning.push(evening.shift());
-    }
-
-    while (morning.length > coverageMorning) {
-      evening.unshift(morning.pop());
-    }
-
-    const morningSet = new Set(morning.map((e) => String(e.id)));
-
-    // Write rows
+    
+    // Get OFF assignments for this week
+    const weekOffMap = weeklyOffDays.get(weekIdx) || new Map();
+    
+    // Build assignments for each employee
     for (const emp of employees) {
-      const id = String(emp.id);
-      let symbol = "";
-
-      if (isVacation(id, iso)) {
+      const empId = String(emp.id);
+      let symbol: string;
+      
+      // Priority 1: Vacation
+      if (isVacation(empId, iso)) {
         symbol = VAC;
-      } else if (offSet.has(id)) {
+      }
+      // Priority 2: Weekly OFF day
+      else if (weekOffMap.get(empId) === iso) {
         symbol = OFF;
-      } else {
-        const shift = morningSet.has(id) ? "Morning" : "Evening";
+      }
+      // Priority 3: Weekly shift (IMMUTABLE - no changes!)
+      else {
+        const shift = getShift(empId, weekIdx);
         symbol = symbolForShift(emp, shift);
       }
-
+      
       rows.push({
         month_id: monthRow.id,
         employee_id: emp.id,
@@ -445,20 +385,26 @@ export async function generateSchedule({
     }
   }
 
-  // Save assignments
+  // =========================================================
+  // STEP 7: Save to database
+  // =========================================================
   await sb.from("assignments").delete().eq("month_id", monthRow.id);
   await sb.from("assignments").insert(rows);
 
+  // =========================================================
+  // STEP 8: Return result with debug info
+  // =========================================================
   return { 
     ok: true,
     debug: {
-      totalEmployees: employees.length,
+      totalEmployees,
       coverageMorning,
       coverageEvening,
-      coverageMorningSource: morningValue !== undefined ? 'database' : 'default',
-      coverageEveningSource: eveningValue !== undefined ? 'database' : 'default',
+      targetMorningPerWeek: targetMorning,
+      targetEveningPerWeek: targetEvening,
+      weeksInMonth: weekIndices.length,
       vacationDaysLoaded: (reqs || []).length,
-      settingsKeys: Object.keys(rawMap)
+      note: "Weekly shifts are FIXED - no daily adjustments"
     }
   };
 }
