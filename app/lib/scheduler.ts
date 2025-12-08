@@ -2,6 +2,7 @@
 //  GENERATE SCHEDULE — FINAL VERSION (Hospital-Grade)
 //  Weekly fixed shifts: Week Morning → Week Evening → repeat
 //  OFF once per week, VAC overrides, coverage auto-fix
+//  CONTINUOUS WEEKS: weekIndex is global across months
 // -----------------------------------------------------------
 
 import {
@@ -9,7 +10,9 @@ import {
   endOfMonth,
   eachDayOfInterval,
   format,
-  getDay
+  getDay,
+  startOfWeek,
+  differenceInWeeks
 } from "date-fns";
 
 import supabaseServer from "@/app/lib/supabaseServer";
@@ -27,20 +30,23 @@ const PT_E = "PT5";
 const MARWA_ID = "3864";
 
 // -----------------------------------------------------------
-// Helper: weekly index
+// Helper: Global week index (continuous across months)
+// Week starts on Saturday (dow=6)
+// Base date: 2020-01-04 (first Saturday of 2020)
 // -----------------------------------------------------------
-function weekIndexOf(date: Date) {
-  const first = new Date(date.getFullYear(), date.getMonth(), 1);
-  const diff = date.getDate() + first.getDay();
-  return Math.floor(diff / 7);
-}
+const EPOCH_SATURDAY = new Date(2020, 0, 4); // Jan 4, 2020 = Saturday
 
-// -----------------------------------------------------------
-// Assign weekly shift:
-// Alternating weekly per employee index
-// -----------------------------------------------------------
-function getWeeklyShift(empIndex: number, wIdx: number) {
-  return (empIndex + wIdx) % 2 === 0 ? "Morning" : "Evening";
+function globalWeekIndex(date: Date): number {
+  // Get the Saturday of the week containing this date
+  const dow = getDay(date); // 0=Sun, 6=Sat
+  const daysFromSat = (dow + 1) % 7; // Saturday=0, Sun=1, Mon=2...
+  const weekStart = new Date(date);
+  weekStart.setDate(date.getDate() - daysFromSat);
+  weekStart.setHours(0, 0, 0, 0);
+  
+  // Calculate weeks since epoch
+  const diffMs = weekStart.getTime() - EPOCH_SATURDAY.getTime();
+  return Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000));
 }
 
 // -----------------------------------------------------------
@@ -51,6 +57,22 @@ function symbolForShift(emp: any, shift: "Morning" | "Evening") {
     return shift === "Morning" ? PT_M : PT_E;
   }
   return shift === "Morning" ? FT_M : FT_E;
+}
+
+// -----------------------------------------------------------
+// Determine shift from symbol
+// -----------------------------------------------------------
+function shiftFromSymbol(symbol: string): "Morning" | "Evening" | null {
+  if (!symbol) return null;
+  const upper = symbol.toUpperCase();
+  if (upper === OFF || upper === VAC) return null;
+  if (["MA1", "MA2", "MA4", "PT4", "M2"].includes(upper) || upper.startsWith("M")) {
+    return "Morning";
+  }
+  if (["EA1", "E2", "E5", "PT5"].includes(upper) || upper.startsWith("E")) {
+    return "Evening";
+  }
+  return null;
 }
 
 // -----------------------------------------------------------
@@ -106,6 +128,102 @@ export async function generateSchedule({
   const isVacation = (id: string, iso: string) =>
     vacationMap.has(id) && vacationMap.get(id)!.has(iso);
 
+  // -----------------------------------------------------------
+  // LOAD PREVIOUS MONTH'S LAST WEEK SHIFTS
+  // -----------------------------------------------------------
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const prevYear = month === 1 ? year - 1 : year;
+  
+  // Get last day of previous month
+  const lastDayPrevMonth = endOfMonth(new Date(prevYear, prevMonth - 1, 1));
+  const prevWeekIdx = globalWeekIndex(lastDayPrevMonth);
+  
+  // Load previous month's assignments for the last week
+  const { data: prevMonthRow } = await sb
+    .from("months")
+    .select("id")
+    .eq("year", prevYear)
+    .eq("month", prevMonth)
+    .single();
+  
+  // Map: empId -> last shift in previous month
+  const prevShiftMap = new Map<string, "Morning" | "Evening">();
+  
+  if (prevMonthRow) {
+    const { data: prevAssigns } = await sb
+      .from("assignments")
+      .select("employee_id, date, symbol")
+      .eq("month_id", prevMonthRow.id)
+      .order("date", { ascending: false });
+    
+    // Get the last working shift for each employee
+    for (const a of prevAssigns || []) {
+      const empId = String(a.employee_id);
+      if (prevShiftMap.has(empId)) continue; // already got their last shift
+      
+      const shift = shiftFromSymbol(a.symbol);
+      if (shift) {
+        prevShiftMap.set(empId, shift);
+      }
+    }
+  }
+  
+  // -----------------------------------------------------------
+  // DETERMINE BASE SHIFT FOR FIRST WEEK
+  // If previous month exists, flip the shift for continuity
+  // -----------------------------------------------------------
+  const firstDayOfMonth = startOfMonth(new Date(year, month - 1, 1));
+  const firstWeekIdx = globalWeekIndex(firstDayOfMonth);
+  
+  // Check if first day is in same week as last day of prev month
+  const sameWeekAsPrev = firstWeekIdx === prevWeekIdx;
+  
+  // Build employee shift map for this month
+  // empId -> globalWeekIdx -> shift
+  const empWeekShift = new Map<string, Map<number, "Morning" | "Evening">>();
+  
+  for (const emp of employees) {
+    const empId = String(emp.id);
+    const weekMap = new Map<number, "Morning" | "Evening">();
+    
+    // If we have previous month data
+    if (prevShiftMap.has(empId)) {
+      const prevShift = prevShiftMap.get(empId)!;
+      
+      if (sameWeekAsPrev) {
+        // Same week continues - keep same shift
+        weekMap.set(firstWeekIdx, prevShift);
+      } else {
+        // New week - flip the shift
+        weekMap.set(firstWeekIdx, prevShift === "Morning" ? "Evening" : "Morning");
+      }
+    }
+    
+    empWeekShift.set(empId, weekMap);
+  }
+  
+  // Function to get shift for employee in a given week
+  const getWeeklyShift = (empId: string, empIndex: number, weekIdx: number): "Morning" | "Evening" => {
+    const weekMap = empWeekShift.get(empId);
+    
+    if (weekMap && weekMap.has(weekIdx)) {
+      return weekMap.get(weekIdx)!;
+    }
+    
+    // Check previous week
+    if (weekMap && weekMap.has(weekIdx - 1)) {
+      const prevWeekShift = weekMap.get(weekIdx - 1)!;
+      const newShift = prevWeekShift === "Morning" ? "Evening" : "Morning";
+      weekMap.set(weekIdx, newShift);
+      return newShift;
+    }
+    
+    // No previous data - use alternating based on employee index and week
+    const shift = (empIndex + weekIdx) % 2 === 0 ? "Morning" : "Evening";
+    if (weekMap) weekMap.set(weekIdx, shift);
+    return shift;
+  };
+
   // Prepare dates
   const start = startOfMonth(new Date(year, month - 1, 1));
   const end = endOfMonth(start);
@@ -117,7 +235,7 @@ export async function generateSchedule({
   const weeklyOff = new Map<number, Map<string, string>>();
 
   for (const d of days) {
-    const wIdx = weekIndexOf(d);
+    const wIdx = globalWeekIndex(d);
     if (!weeklyOff.has(wIdx)) weeklyOff.set(wIdx, new Map());
   }
 
@@ -125,7 +243,7 @@ export async function generateSchedule({
   for (const d of days) {
     const dow = getDay(d);
     const iso = format(d, "yyyy-MM-dd");
-    const wIdx = weekIndexOf(d);
+    const wIdx = globalWeekIndex(d);
 
     if (dow === 5) {
       employees.forEach((e) => weeklyOff.get(wIdx)!.set(String(e.id), iso));
@@ -139,7 +257,7 @@ export async function generateSchedule({
     const dow = getDay(d);
     if (dow === 5) continue;
 
-    const wIdx = weekIndexOf(d);
+    const wIdx = globalWeekIndex(d);
     if (!weekGroups.has(wIdx)) weekGroups.set(wIdx, []);
     weekGroups.get(wIdx)!.push(format(d, "yyyy-MM-dd"));
   }
@@ -187,7 +305,7 @@ export async function generateSchedule({
   for (const day of days) {
     const iso = format(day, "yyyy-MM-dd");
     const dow = getDay(day);
-    const wIdx = weekIndexOf(day);
+    const wIdx = globalWeekIndex(day);
 
     const offMap = weeklyOff.get(wIdx)!;
 
@@ -227,7 +345,7 @@ export async function generateSchedule({
       const id = String(emp.id);
       if (offSet.has(id) || isVacation(id, iso)) return;
 
-      const shift = getWeeklyShift(i, wIdx);
+      const shift = getWeeklyShift(id, i, wIdx);
       if (shift === "Morning") morning.push(emp);
       else evening.push(emp);
     });
