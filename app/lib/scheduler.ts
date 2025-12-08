@@ -105,11 +105,66 @@ export async function generateSchedule({
     .order("name", { ascending: true });
   const employees = empData || [];
 
-  // Load settings
-  const { data: settings } = await sb.from("settings").select("*");
-  const map = Object.fromEntries((settings || []).map((s: any) => [s.key, s.value]));
-  const coverageMorning = Number(map.coverageMorning) || 5;
-  const coverageEvening = Number(map.coverageEvening) || 6;
+  // Load settings with flexible key matching
+  const { data: settingsData, error: settingsErr } = await sb.from("settings").select("key, value");
+  
+  // Build a normalized map (lowercase keys for flexible matching)
+  const rawMap: Record<string, string> = {};
+  const normalizedMap: Record<string, string> = {};
+  
+  for (const s of settingsData || []) {
+    if (s.key && s.value !== null && s.value !== undefined) {
+      rawMap[s.key] = s.value;
+      normalizedMap[s.key.toLowerCase().replace(/_/g, '')] = s.value;
+    }
+  }
+  
+  // Helper to get setting value with multiple key variations
+  const getSetting = (primaryKey: string, ...alternateKeys: string[]): string | undefined => {
+    // Try exact match first
+    if (rawMap[primaryKey] !== undefined) return rawMap[primaryKey];
+    
+    // Try alternate keys
+    for (const key of alternateKeys) {
+      if (rawMap[key] !== undefined) return rawMap[key];
+    }
+    
+    // Try normalized (lowercase, no underscores)
+    const normalized = primaryKey.toLowerCase().replace(/_/g, '');
+    if (normalizedMap[normalized] !== undefined) return normalizedMap[normalized];
+    
+    return undefined;
+  };
+  
+  // Get coverage values with flexible key matching
+  const morningValue = getSetting(
+    'coverageMorning',
+    'morningCoverage', 
+    'coverage_morning', 
+    'CoverageMorning',
+    'morning_coverage'
+  );
+  
+  const eveningValue = getSetting(
+    'coverageEvening',
+    'eveningCoverage',
+    'coverage_evening',
+    'CoverageEvening',
+    'evening_coverage'
+  );
+  
+  // Parse values - only use default if key doesn't exist at all
+  const coverageMorning = morningValue !== undefined ? Number(morningValue) : 5;
+  const coverageEvening = eveningValue !== undefined ? Number(eveningValue) : 6;
+  
+  // Log for debugging
+  console.log('[generateSchedule] Settings loaded:', {
+    rawKeys: Object.keys(rawMap),
+    morningValue,
+    eveningValue,
+    coverageMorning,
+    coverageEvening
+  });
 
   // Load vacations
   const { data: reqs } = await sb
@@ -400,7 +455,10 @@ export async function generateSchedule({
       totalEmployees: employees.length,
       coverageMorning,
       coverageEvening,
-      vacationDaysLoaded: (reqs || []).length
+      coverageMorningSource: morningValue !== undefined ? 'database' : 'default',
+      coverageEveningSource: eveningValue !== undefined ? 'database' : 'default',
+      vacationDaysLoaded: (reqs || []).length,
+      settingsKeys: Object.keys(rawMap)
     }
   };
 }

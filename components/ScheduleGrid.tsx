@@ -92,7 +92,17 @@ export default function ScheduleGrid() {
       
       // إعادة تحميل الجدول
       loadMonth();
-      setMsg(`تم إنشاء الجدول بنجاح! (موظفات: ${data.debug?.totalEmployees || '?'}, صباح: ${data.debug?.coverageMorning || '?'}, مساء: ${data.debug?.coverageEvening || '?'})`);
+      
+      // Build detailed message
+      const d = data.debug || {};
+      const morningInfo = d.coverageMorningSource === 'database' 
+        ? `صباح: ${d.coverageMorning} ✓` 
+        : `صباح: ${d.coverageMorning} (افتراضي)`;
+      const eveningInfo = d.coverageEveningSource === 'database'
+        ? `مساء: ${d.coverageEvening} ✓`
+        : `مساء: ${d.coverageEvening} (افتراضي)`;
+      
+      setMsg(`تم إنشاء الجدول بنجاح! (موظفات: ${d.totalEmployees || '?'}, ${morningInfo}, ${eveningInfo})`);
     } catch (err: any) {
       console.error('Error generating schedule:', err);
       setMsg('حدث خطأ أثناء إنشاء الجدول: ' + (err.message || 'غير معروف'));
