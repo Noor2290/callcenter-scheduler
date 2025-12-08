@@ -72,8 +72,13 @@ export async function generateSchedule({ year, month }: { year: number; month: n
   const settings = settingsData || [];
   const map = Object.fromEntries(settings.map((s: any) => [s.key, s.value]));
 
-  const coverageMorning = Number(map.morningCoverage) || Number(map.coverageMorning) || 5;
-  const coverageEvening = Number(map.eveningCoverage) || Number(map.coverageEvening) || 6;
+  // طباعة الإعدادات للتحقق
+  console.log("Settings map:", map);
+  
+  const coverageMorning = Number(map.morningCoverage) || Number(map.coverageMorning) || Number(map.morning_coverage) || 5;
+  const coverageEvening = Number(map.eveningCoverage) || Number(map.coverageEvening) || Number(map.evening_coverage) || 6;
+  
+  console.log("Coverage - Morning:", coverageMorning, "Evening:", coverageEvening);
 
   // ----------- vacation requests -----------
   // جلب كل طلبات الإجازات (بدون فلتر تاريخ - نفلتر بعدين)
@@ -274,6 +279,7 @@ export async function generateSchedule({ year, month }: { year: number; month: n
 
     // ==========================
     //     توزيع Morning / Evening حسب الإعدادات
+    //     مع الحفاظ على نفس الشفت طول الأسبوع
     // ==========================
 
     // المتاحين = ليسوا في OFF ولا في إجازة
@@ -282,15 +288,37 @@ export async function generateSchedule({ year, month }: { year: number; month: n
       return !offSet.has(empIdStr) && !isOnVacation(empIdStr, iso);
     });
 
-    // --- اختر morning بالضبط حسب الإعداد ---
-    const morningCount = Math.min(coverageMorning, available.length);
-    const morningStaff = randomPick(available, rng, morningCount);
+    // نحدد الشفت الأسبوعي لكل موظفة متاحة
+    // ونختار منهم حسب التغطية المطلوبة
+    const morningCandidates: any[] = [];
+    const eveningCandidates: any[] = [];
     
-    // --- الباقي كلهم evening ---
-    const eveningStaff = available.filter((e: any) => !morningStaff.includes(e));
+    for (const emp of available) {
+      const weeklyShiftForEmp = getWeeklyShift(String(emp.id), wIdx);
+      if (weeklyShiftForEmp === "Morning") {
+        morningCandidates.push(emp);
+      } else {
+        eveningCandidates.push(emp);
+      }
+    }
+
+    // نضمن التغطية المطلوبة
+    let morningStaff = [...morningCandidates];
+    let eveningStaff = [...eveningCandidates];
+
+    // لو الصباح أقل من المطلوب، ننقل من المساء
+    while (morningStaff.length < coverageMorning && eveningStaff.length > 0) {
+      const moved = eveningStaff.shift()!;
+      morningStaff.push(moved);
+    }
+
+    // لو الصباح أكثر من المطلوب، ننقل للمساء
+    while (morningStaff.length > coverageMorning && morningStaff.length > 0) {
+      const moved = morningStaff.pop()!;
+      eveningStaff.unshift(moved);
+    }
 
     const morningSet = new Set(morningStaff.map((e: any) => String(e.id)));
-    const eveningSet = new Set(eveningStaff.map((e: any) => String(e.id)));
 
     // ==========================
     //     Apply final assignments
@@ -307,15 +335,9 @@ export async function generateSchedule({ year, month }: { year: number; month: n
       else if (offSet.has(empIdStr)) {
         symbol = OFF;
       }
-      // ثالثاً: توزيع الشفتات
+      // ثالثاً: توزيع الشفتات حسب الأسبوع
       else {
-        let finalShift: "Morning" | "Evening";
-
-        if (morningSet.has(empIdStr)) {
-          finalShift = "Morning";
-        } else {
-          finalShift = "Evening";
-        }
+        const finalShift = morningSet.has(empIdStr) ? "Morning" : "Evening";
 
         symbol = isPartTime(emp)
           ? finalShift === "Morning"
