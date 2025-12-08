@@ -58,17 +58,19 @@ export async function generateSchedule({ year, month }: { year: number; month: n
   if (mErr) throw mErr;
 
   // ----------- employees -----------
-  const { data: employees } = await sb
+  const { data: employeesData } = await sb
     .from("employees")
     .select("*")
     .order("name", { ascending: true });
+  const employees = employeesData || [];
 
   // أي موظفة Part-Time بناء على نوع التوظيف فقط
   const isPartTime = (emp: any) => emp.employment_type === "PartTime";
 
   // ----------- settings -----------
-  const { data: settings } = await sb.from("settings").select("key,value");
-  const map = Object.fromEntries(settings.map((s) => [s.key, s.value]));
+  const { data: settingsData } = await sb.from("settings").select("key,value");
+  const settings = settingsData || [];
+  const map = Object.fromEntries(settings.map((s: any) => [s.key, s.value]));
 
   const coverageMorning = Number(map.morningCoverage) || Number(map.coverageMorning) || 5;
   const coverageEvening = Number(map.eveningCoverage) || Number(map.coverageEvening) || 6;
@@ -132,6 +134,60 @@ export async function generateSchedule({ year, month }: { year: number; month: n
   };
 
   // **********************************************
+  //   توزيع الأوف الأسبوعي: كل موظفة يوم واحد OFF في الأسبوع (غير الجمعة)
+  // **********************************************
+
+  // نجمع الأسابيع وأيامها (بدون الجمعة)
+  const weekDaysMap = new Map<number, Date[]>(); // weekIndex -> أيام العمل (سبت-خميس)
+  for (const day of days) {
+    const dow = getDay(day);
+    if (dow === 5) continue; // الجمعة نتجاهلها هنا
+    const wIdx = getWeekIndex(day);
+    if (!weekDaysMap.has(wIdx)) weekDaysMap.set(wIdx, []);
+    weekDaysMap.get(wIdx)!.push(day);
+  }
+
+  // لكل أسبوع، نوزّع يوم أوف واحد لكل موظفة
+  // weeklyOffDay: Map<weekIndex, Map<empId, dateISO>>
+  const weeklyOffDay = new Map<number, Map<string, string>>();
+
+  for (const [wIdx, wDays] of weekDaysMap) {
+    const offMap = new Map<string, string>();
+    weeklyOffDay.set(wIdx, offMap);
+
+    // نخلط الأيام عشوائياً
+    const shuffledDays = [...wDays];
+    for (let i = shuffledDays.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [shuffledDays[i], shuffledDays[j]] = [shuffledDays[j], shuffledDays[i]];
+    }
+
+    // نخلط الموظفات عشوائياً
+    const shuffledEmps = [...employees];
+    for (let i = shuffledEmps.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [shuffledEmps[i], shuffledEmps[j]] = [shuffledEmps[j], shuffledEmps[i]];
+    }
+
+    // نوزّع: كل موظفة تاخذ يوم من الأيام المتاحة
+    // مروه دائماً السبت (dow=6) إذا موجود في هذا الأسبوع
+    const saturdayInWeek = wDays.find(d => getDay(d) === 6);
+
+    let dayIndex = 0;
+    for (const emp of shuffledEmps) {
+      if (emp.id === MARWA_ID && saturdayInWeek) {
+        // مروه أوفها السبت
+        offMap.set(emp.id, format(saturdayInWeek, "yyyy-MM-dd"));
+      } else {
+        // باقي الموظفات: نوزّع بالتساوي على الأيام
+        const assignedDay = shuffledDays[dayIndex % shuffledDays.length];
+        offMap.set(emp.id, format(assignedDay, "yyyy-MM-dd"));
+        dayIndex++;
+      }
+    }
+  }
+
+  // **********************************************
   //          GENERATE DAILY ASSIGNMENTS
   // **********************************************
 
@@ -150,53 +206,28 @@ export async function generateSchedule({ year, month }: { year: number; month: n
       continue;
     }
 
-    // -------- السبت OFF لمروه فقط --------
-    if (dow === 6) {
-      for (const emp of employees) {
-        if (emp.id === MARWA_ID)
-          rows.push({ month_id: monthRow.id, employee_id: emp.id, date: iso, symbol: OFF, code: OFF });
-        else {
-          const shift = getWeeklyShift(emp.id, wIdx);
-
-          const symbol = isPartTime(emp)
-            ? shift === "Morning"
-              ? MORNING_CODE_PT
-              : EVENING_CODE_PT
-            : shift === "Morning"
-            ? MORNING_CODE_FT
-            : EVENING_CODE_FT;
-
-          rows.push({ month_id: monthRow.id, employee_id: emp.id, date: iso, symbol, code: symbol });
-        }
-      }
-      continue;
+    // -------- تحديد من عندها OFF اليوم (من التوزيع الأسبوعي) --------
+    const offMapThisWeek = weeklyOffDay.get(wIdx) || new Map();
+    const offSet = new Set<string>();
+    for (const [empId, offDate] of offMapThisWeek) {
+      if (offDate === iso) offSet.add(empId);
     }
-
-    // ==========================
-    //      توزيع OFF (2)
-    // ==========================
-    const offList = randomPick(
-      employees.filter((e) => e.id !== MARWA_ID),
-      rng,
-      2
-    );
-    const offSet = new Set(offList.map((e) => e.id));
 
     // ==========================
     //     توزيع Morning / Evening حسب الإعدادات
     // ==========================
 
-    const available = employees.filter((e) => !offSet.has(e.id));
+    const available = employees.filter((e: any) => !offSet.has(e.id));
 
     // --- اختر morning ---
     const morningStaff = randomPick(available, rng, coverageMorning);
-    const remainingAfterMorning = available.filter(e => !morningStaff.includes(e));
+    const remainingAfterMorning = available.filter((e: any) => !morningStaff.includes(e));
 
     // --- اختر evening ---
     const eveningStaff = randomPick(remainingAfterMorning, rng, coverageEvening);
 
-    const morningSet = new Set(morningStaff.map(e => e.id));
-    const eveningSet = new Set(eveningStaff.map(e => e.id));
+    const morningSet = new Set(morningStaff.map((e: any) => e.id));
+    const eveningSet = new Set(eveningStaff.map((e: any) => e.id));
 
     // ==========================
     //     Apply final assignments
