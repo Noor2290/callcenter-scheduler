@@ -178,25 +178,47 @@ export async function generateSchedule({
   // Check if first day is in same week as last day of prev month
   const sameWeekAsPrev = firstWeekIdx === prevWeekIdx;
   
-  // Build employee shift map for this month
+  // Prepare dates first to get all week indices
+  const start = startOfMonth(new Date(year, month - 1, 1));
+  const end = endOfMonth(start);
+  const days = eachDayOfInterval({ start, end });
+  
+  // Get all unique week indices in this month
+  const allWeekIndices = [...new Set(days.map(d => globalWeekIndex(d)))].sort((a, b) => a - b);
+  
+  // Build employee shift map for this month - PRE-CALCULATE ALL WEEKS
   // empId -> globalWeekIdx -> shift
   const empWeekShift = new Map<string, Map<number, "Morning" | "Evening">>();
   
-  for (const emp of employees) {
+  for (let empIdx = 0; empIdx < employees.length; empIdx++) {
+    const emp = employees[empIdx];
     const empId = String(emp.id);
     const weekMap = new Map<number, "Morning" | "Evening">();
     
-    // If we have previous month data
+    // Determine first week's shift
+    let firstShift: "Morning" | "Evening";
+    
     if (prevShiftMap.has(empId)) {
       const prevShift = prevShiftMap.get(empId)!;
       
       if (sameWeekAsPrev) {
         // Same week continues - keep same shift
-        weekMap.set(firstWeekIdx, prevShift);
+        firstShift = prevShift;
       } else {
         // New week - flip the shift
-        weekMap.set(firstWeekIdx, prevShift === "Morning" ? "Evening" : "Morning");
+        firstShift = prevShift === "Morning" ? "Evening" : "Morning";
       }
+    } else {
+      // No previous data - use alternating based on employee index and first week
+      firstShift = (empIdx + allWeekIndices[0]) % 2 === 0 ? "Morning" : "Evening";
+    }
+    
+    // Now fill ALL weeks with alternating shifts
+    let currentShift = firstShift;
+    for (const wIdx of allWeekIndices) {
+      weekMap.set(wIdx, currentShift);
+      // Flip for next week
+      currentShift = currentShift === "Morning" ? "Evening" : "Morning";
     }
     
     empWeekShift.set(empId, weekMap);
@@ -205,29 +227,12 @@ export async function generateSchedule({
   // Function to get shift for employee in a given week
   const getWeeklyShift = (empId: string, empIndex: number, weekIdx: number): "Morning" | "Evening" => {
     const weekMap = empWeekShift.get(empId);
-    
     if (weekMap && weekMap.has(weekIdx)) {
       return weekMap.get(weekIdx)!;
     }
-    
-    // Check previous week
-    if (weekMap && weekMap.has(weekIdx - 1)) {
-      const prevWeekShift = weekMap.get(weekIdx - 1)!;
-      const newShift = prevWeekShift === "Morning" ? "Evening" : "Morning";
-      weekMap.set(weekIdx, newShift);
-      return newShift;
-    }
-    
-    // No previous data - use alternating based on employee index and week
-    const shift = (empIndex + weekIdx) % 2 === 0 ? "Morning" : "Evening";
-    if (weekMap) weekMap.set(weekIdx, shift);
-    return shift;
+    // Fallback (should not happen)
+    return (empIndex + weekIdx) % 2 === 0 ? "Morning" : "Evening";
   };
-
-  // Prepare dates
-  const start = startOfMonth(new Date(year, month - 1, 1));
-  const end = endOfMonth(start);
-  const days = eachDayOfInterval({ start, end });
 
   // -----------------------------------------------------------
   // WEEKLY OFF ASSIGNMENT
