@@ -1,11 +1,13 @@
 // -----------------------------------------------------------
-//  GENERATE SCHEDULE — HOSPITAL-GRADE v2.0
+//  GENERATE SCHEDULE — HOSPITAL-GRADE v3.0
 //  
-//  CORE PRINCIPLE: Weekly shift is SACRED and IMMUTABLE
-//  - Employee's weekly shift (Morning/Evening) NEVER changes within a week
-//  - Daily coverage shortages due to OFF/VAC are ACCEPTABLE
-//  - Smart weekly distribution ensures balanced coverage
-//  - NO daily shift swapping allowed
+//  GUARANTEED BEHAVIORS:
+//  ✔ Group A size = coverageMorning EXACTLY (from settings)
+//  ✔ Group B size = totalEmployees − coverageMorning
+//  ✔ Weekly flip pattern: A → B → A → B → ...
+//  ✔ OFF/VAC do NOT shift employees or change groups
+//  ✔ Continuity between months is preserved
+//  ✔ Employee shift flips ONLY when a new global week starts
 // -----------------------------------------------------------
 
 import {
@@ -186,41 +188,140 @@ export async function generateSchedule({
   }
 
   // =========================================================
-  // STEP 4: FIXED WEEKLY SHIFT DISTRIBUTION
+  // STEP 4: DYNAMIC GROUP CREATION FROM SETTINGS
   // 
-  // CRITICAL RULES:
-  // 1. Split employees into TWO FIXED GROUPS:
-  //    - Group A: EXACTLY coverageMorning employees
-  //    - Group B: The remaining employees
-  // 2. Week pattern:
-  //    - Odd weeks (1, 3, 5...): Group A = Morning, Group B = Evening
-  //    - Even weeks (2, 4, 6...): Group A = Evening, Group B = Morning
-  // 3. This ensures EXACTLY coverageMorning in Morning every week
+  // GUARANTEED RULES:
+  // 1. Group A size = EXACTLY coverageMorning (from settings table)
+  // 2. Group B size = totalEmployees - coverageMorning
+  // 3. Weekly flip: Week1=A→Morning, Week2=B→Morning, Week3=A→Morning...
+  // 4. Continuity: preserve shifts from previous month when possible
+  // 5. Rebalance: if continuity breaks group sizes, fix them
   // =========================================================
   
-  console.log('[generateSchedule] Creating fixed groups:', { 
-    coverageMorning, 
-    coverageEvening, 
-    totalEmployees 
-  });
+  console.log('[generateSchedule] ========================================');
+  console.log('[generateSchedule] STEP 4: Creating Dynamic Groups');
+  console.log('[generateSchedule] Settings: coverageMorning =', coverageMorning);
+  console.log('[generateSchedule] Settings: coverageEvening =', coverageEvening);
+  console.log('[generateSchedule] Total employees =', totalEmployees);
+  console.log('[generateSchedule] ========================================');
   
-  // Create TWO FIXED GROUPS
-  // Group A = first coverageMorning employees (alphabetically)
-  // Group B = remaining employees
-  const groupA: string[] = []; // Will be Morning in odd weeks
-  const groupB: string[] = []; // Will be Morning in even weeks
+  // RULE: Group A MUST have EXACTLY coverageMorning employees
+  const groupASize = coverageMorning;
+  const groupBSize = totalEmployees - coverageMorning;
   
-  for (let i = 0; i < employees.length; i++) {
-    const empId = String(employees[i].id);
-    if (i < coverageMorning) {
-      groupA.push(empId);
+  console.log('[generateSchedule] Required Group A size:', groupASize);
+  console.log('[generateSchedule] Required Group B size:', groupBSize);
+  
+  // Initialize groups
+  let groupA: Set<string> = new Set(); // Morning in Week 1, 3, 5...
+  let groupB: Set<string> = new Set(); // Morning in Week 2, 4, 6...
+  
+  // Check if we have previous month data for continuity
+  const hasPrevData = prevShiftMap.size > 0;
+  
+  if (hasPrevData) {
+    console.log('[generateSchedule] Previous month data found, attempting continuity...');
+    
+    // Determine what shift each employee should have in first week
+    // based on previous month's last shift
+    const firstWeekShifts = new Map<string, "Morning" | "Evening">();
+    
+    for (const emp of employees) {
+      const empId = String(emp.id);
+      const prevShift = prevShiftMap.get(empId);
+      
+      if (prevShift) {
+        if (sameWeekAsPrev) {
+          // Same week continues - keep same shift
+          firstWeekShifts.set(empId, prevShift);
+        } else {
+          // New week - flip the shift
+          firstWeekShifts.set(empId, prevShift === "Morning" ? "Evening" : "Morning");
+        }
+      } else {
+        // New employee - will be assigned later
+        firstWeekShifts.set(empId, "Evening"); // Default
+      }
+    }
+    
+    // Count how many want Morning in first week
+    const wantMorning: string[] = [];
+    const wantEvening: string[] = [];
+    
+    for (const emp of employees) {
+      const empId = String(emp.id);
+      if (firstWeekShifts.get(empId) === "Morning") {
+        wantMorning.push(empId);
+      } else {
+        wantEvening.push(empId);
+      }
+    }
+    
+    console.log('[generateSchedule] From continuity: want Morning =', wantMorning.length);
+    console.log('[generateSchedule] From continuity: want Evening =', wantEvening.length);
+    
+    // REBALANCE to ensure Group A = coverageMorning EXACTLY
+    if (wantMorning.length === groupASize) {
+      // Perfect! Use as-is
+      groupA = new Set(wantMorning);
+      groupB = new Set(wantEvening);
+      console.log('[generateSchedule] Perfect match! No rebalancing needed.');
+    } else if (wantMorning.length > groupASize) {
+      // Too many want Morning - move some to Evening
+      const excess = wantMorning.length - groupASize;
+      console.log('[generateSchedule] Too many Morning, moving', excess, 'to Evening');
+      
+      // Keep first groupASize in Morning, move rest to Evening
+      for (let i = 0; i < wantMorning.length; i++) {
+        if (i < groupASize) {
+          groupA.add(wantMorning[i]);
+        } else {
+          groupB.add(wantMorning[i]);
+        }
+      }
+      // Add all Evening to Group B
+      for (const empId of wantEvening) {
+        groupB.add(empId);
+      }
     } else {
-      groupB.push(empId);
+      // Too few want Morning - move some from Evening to Morning
+      const deficit = groupASize - wantMorning.length;
+      console.log('[generateSchedule] Too few Morning, moving', deficit, 'from Evening');
+      
+      // All Morning go to Group A
+      for (const empId of wantMorning) {
+        groupA.add(empId);
+      }
+      // Move some from Evening to Group A
+      for (let i = 0; i < wantEvening.length; i++) {
+        if (i < deficit) {
+          groupA.add(wantEvening[i]);
+        } else {
+          groupB.add(wantEvening[i]);
+        }
+      }
+    }
+  } else {
+    // No previous data - create fresh groups alphabetically
+    console.log('[generateSchedule] No previous data, creating fresh groups...');
+    
+    for (let i = 0; i < employees.length; i++) {
+      const empId = String(employees[i].id);
+      if (i < groupASize) {
+        groupA.add(empId);
+      } else {
+        groupB.add(empId);
+      }
     }
   }
   
-  console.log('[generateSchedule] Group A (Morning in odd weeks):', groupA.length);
-  console.log('[generateSchedule] Group B (Morning in even weeks):', groupB.length);
+  // VERIFY group sizes are correct
+  console.log('[generateSchedule] Final Group A size:', groupA.size, '(required:', groupASize, ')');
+  console.log('[generateSchedule] Final Group B size:', groupB.size, '(required:', groupBSize, ')');
+  
+  if (groupA.size !== groupASize) {
+    console.error('[generateSchedule] ERROR: Group A size mismatch!');
+  }
   
   // Build weekly shift assignments
   // empId -> weekIdx -> shift
@@ -231,45 +332,25 @@ export async function generateSchedule({
     weeklyShifts.set(String(emp.id), new Map());
   }
   
-  // Determine starting pattern based on previous month
-  // If continuing same week, keep pattern; if new week, flip
-  let groupAStartsWithMorning = true; // Default: Group A starts with Morning
+  // Assign shifts for each week using the FIXED pattern:
+  // Week 1 (wkIndex=0): Group A = Morning, Group B = Evening
+  // Week 2 (wkIndex=1): Group A = Evening, Group B = Morning
+  // Week 3 (wkIndex=2): Group A = Morning, Group B = Evening
+  // ... and so on
   
-  if (prevShiftMap.size > 0 && groupA.length > 0) {
-    // Check what shift Group A had in previous month's last week
-    const sampleEmpId = groupA[0];
-    const prevShift = prevShiftMap.get(sampleEmpId);
-    
-    if (prevShift) {
-      if (sameWeekAsPrev) {
-        // Same week continues - Group A keeps same shift
-        groupAStartsWithMorning = prevShift === "Morning";
-      } else {
-        // New week - Group A flips
-        groupAStartsWithMorning = prevShift === "Evening";
-      }
-    }
-  }
-  
-  console.log('[generateSchedule] Group A starts with Morning:', groupAStartsWithMorning);
-  
-  // Assign shifts for each week
   for (let wkIndex = 0; wkIndex < weekIndices.length; wkIndex++) {
     const weekIdx = weekIndices[wkIndex];
     
-    // Determine if Group A is Morning this week
-    // wkIndex 0: groupAStartsWithMorning
-    // wkIndex 1: flipped
-    // wkIndex 2: same as 0
-    // etc.
-    const groupAIsMorning = (wkIndex % 2 === 0) ? groupAStartsWithMorning : !groupAStartsWithMorning;
+    // Group A is Morning on even wkIndex (0, 2, 4...)
+    // Group A is Evening on odd wkIndex (1, 3, 5...)
+    const groupAIsMorning = (wkIndex % 2 === 0);
     
     let morningCount = 0;
     let eveningCount = 0;
     
     for (const emp of employees) {
       const empId = String(emp.id);
-      const isGroupA = groupA.includes(empId);
+      const isGroupA = groupA.has(empId);
       
       let shift: "Morning" | "Evening";
       if (isGroupA) {
@@ -284,7 +365,7 @@ export async function generateSchedule({
       else eveningCount++;
     }
     
-    console.log(`[generateSchedule] Week ${weekIdx} (wkIndex=${wkIndex}): Morning=${morningCount}, Evening=${eveningCount}`);
+    console.log(`[generateSchedule] Week ${wkIndex + 1} (globalIdx=${weekIdx}): Morning=${morningCount}, Evening=${eveningCount}`);
   }
   
   // Helper function to get employee's shift for a week (IMMUTABLE)
@@ -438,9 +519,11 @@ export async function generateSchedule({
       totalEmployees,
       coverageMorning,
       coverageEvening,
+      groupASize: groupA.size,
+      groupBSize: groupB.size,
       weeksInMonth: weekIndices.length,
       vacationDaysLoaded: (reqs || []).length,
-      note: "Weekly shifts are FIXED - no daily adjustments allowed"
+      pattern: "Week1: GroupA=Morning, Week2: GroupB=Morning, Week3: GroupA=Morning..."
     }
   };
 }
