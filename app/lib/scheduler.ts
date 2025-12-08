@@ -189,15 +189,38 @@ export async function generateSchedule({
   // STEP 4: FIXED WEEKLY SHIFT DISTRIBUTION
   // 
   // CRITICAL RULES:
-  // 1. Each week has EXACTLY coverageMorning employees in Morning
-  // 2. The rest go to Evening
-  // 3. Employees alternate weeks (Morning → Evening → Morning...)
-  // 4. But we split employees into TWO GROUPS to maintain coverage:
-  //    - Group A (first half): starts Morning in odd weeks
-  //    - Group B (second half): starts Morning in even weeks
+  // 1. Split employees into TWO FIXED GROUPS:
+  //    - Group A: EXACTLY coverageMorning employees
+  //    - Group B: The remaining employees
+  // 2. Week pattern:
+  //    - Odd weeks (1, 3, 5...): Group A = Morning, Group B = Evening
+  //    - Even weeks (2, 4, 6...): Group A = Evening, Group B = Morning
+  // 3. This ensures EXACTLY coverageMorning in Morning every week
   // =========================================================
   
-  console.log('[generateSchedule] Coverage settings:', { coverageMorning, coverageEvening, totalEmployees });
+  console.log('[generateSchedule] Creating fixed groups:', { 
+    coverageMorning, 
+    coverageEvening, 
+    totalEmployees 
+  });
+  
+  // Create TWO FIXED GROUPS
+  // Group A = first coverageMorning employees (alphabetically)
+  // Group B = remaining employees
+  const groupA: string[] = []; // Will be Morning in odd weeks
+  const groupB: string[] = []; // Will be Morning in even weeks
+  
+  for (let i = 0; i < employees.length; i++) {
+    const empId = String(employees[i].id);
+    if (i < coverageMorning) {
+      groupA.push(empId);
+    } else {
+      groupB.push(empId);
+    }
+  }
+  
+  console.log('[generateSchedule] Group A (Morning in odd weeks):', groupA.length);
+  console.log('[generateSchedule] Group B (Morning in even weeks):', groupB.length);
   
   // Build weekly shift assignments
   // empId -> weekIdx -> shift
@@ -208,57 +231,51 @@ export async function generateSchedule({
     weeklyShifts.set(String(emp.id), new Map());
   }
   
-  // Determine base shift for each employee for the FIRST week
-  // This creates two groups that alternate, ensuring coverage stays balanced
-  const employeeBaseShift = new Map<string, "Morning" | "Evening">();
+  // Determine starting pattern based on previous month
+  // If continuing same week, keep pattern; if new week, flip
+  let groupAStartsWithMorning = true; // Default: Group A starts with Morning
   
-  // Check if we have previous month data
-  const hasPrevData = prevShiftMap.size > 0;
-  
-  if (hasPrevData) {
-    // Use previous month's last shifts as base
-    for (const emp of employees) {
-      const empId = String(emp.id);
-      if (prevShiftMap.has(empId)) {
-        const prevShift = prevShiftMap.get(empId)!;
-        // If same week continues, keep shift; otherwise flip
-        const baseShift = sameWeekAsPrev ? prevShift : (prevShift === "Morning" ? "Evening" : "Morning");
-        employeeBaseShift.set(empId, baseShift);
+  if (prevShiftMap.size > 0 && groupA.length > 0) {
+    // Check what shift Group A had in previous month's last week
+    const sampleEmpId = groupA[0];
+    const prevShift = prevShiftMap.get(sampleEmpId);
+    
+    if (prevShift) {
+      if (sameWeekAsPrev) {
+        // Same week continues - Group A keeps same shift
+        groupAStartsWithMorning = prevShift === "Morning";
       } else {
-        // New employee - will be assigned below
-        employeeBaseShift.set(empId, "Evening"); // Default, will be adjusted
+        // New week - Group A flips
+        groupAStartsWithMorning = prevShift === "Evening";
       }
-    }
-  } else {
-    // No previous data - create balanced initial distribution
-    // Split employees: first coverageMorning go to Morning, rest to Evening
-    for (let i = 0; i < employees.length; i++) {
-      const empId = String(employees[i].id);
-      employeeBaseShift.set(empId, i < coverageMorning ? "Morning" : "Evening");
     }
   }
   
-  // Now assign shifts for each week
+  console.log('[generateSchedule] Group A starts with Morning:', groupAStartsWithMorning);
+  
+  // Assign shifts for each week
   for (let wkIndex = 0; wkIndex < weekIndices.length; wkIndex++) {
     const weekIdx = weekIndices[wkIndex];
+    
+    // Determine if Group A is Morning this week
+    // wkIndex 0: groupAStartsWithMorning
+    // wkIndex 1: flipped
+    // wkIndex 2: same as 0
+    // etc.
+    const groupAIsMorning = (wkIndex % 2 === 0) ? groupAStartsWithMorning : !groupAStartsWithMorning;
     
     let morningCount = 0;
     let eveningCount = 0;
     
     for (const emp of employees) {
       const empId = String(emp.id);
-      const baseShift = employeeBaseShift.get(empId)!;
+      const isGroupA = groupA.includes(empId);
       
-      // Calculate shift for this week based on base shift and week index
-      // wkIndex 0 = base shift
-      // wkIndex 1 = flipped
-      // wkIndex 2 = base shift
-      // etc.
       let shift: "Morning" | "Evening";
-      if (wkIndex % 2 === 0) {
-        shift = baseShift;
+      if (isGroupA) {
+        shift = groupAIsMorning ? "Morning" : "Evening";
       } else {
-        shift = baseShift === "Morning" ? "Evening" : "Morning";
+        shift = groupAIsMorning ? "Evening" : "Morning";
       }
       
       weeklyShifts.get(empId)!.set(weekIdx, shift);
