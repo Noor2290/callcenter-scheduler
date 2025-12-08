@@ -76,31 +76,25 @@ export async function generateSchedule({ year, month }: { year: number; month: n
   const coverageEvening = Number(map.eveningCoverage) || Number(map.coverageEvening) || 6;
 
   // ----------- vacation requests -----------
-  // جلب طلبات الإجازات للشهر الحالي
-  const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-  const endDate = `${year}-${String(month).padStart(2, '0')}-31`;
-  
+  // جلب كل طلبات الإجازات (بدون فلتر تاريخ - نفلتر بعدين)
   const { data: vacationRequests } = await sb
     .from("requests")
-    .select("employee_id, start_date, end_date, type")
-    .or(`start_date.lte.${endDate},end_date.gte.${startDate}`);
+    .select("*")
+    .eq("type", "Vacation");
 
   // بناء map للإجازات: employeeId -> Set of dates (ISO)
+  // جدول requests فيه عمود date واحد - كل يوم إجازة صف منفصل
   const vacationMap = new Map<string, Set<string>>();
   if (vacationRequests) {
     for (const req of vacationRequests as any[]) {
-      if (req.type !== "Vacation") continue;
       const empId = String(req.employee_id);
       if (!vacationMap.has(empId)) vacationMap.set(empId, new Set());
-      
-      // إضافة كل الأيام بين start_date و end_date
-      const reqStart = new Date(req.start_date);
-      const reqEnd = new Date(req.end_date);
-      for (let d = new Date(reqStart); d <= reqEnd; d.setDate(d.getDate() + 1)) {
-        vacationMap.get(empId)!.add(format(d, "yyyy-MM-dd"));
-      }
+      vacationMap.get(empId)!.add(req.date);
     }
   }
+  
+  console.log("Vacation requests loaded:", vacationRequests?.length || 0);
+  console.log("Vacation map:", Object.fromEntries(vacationMap));
 
   // دالة للتحقق إذا الموظفة في إجازة
   const isOnVacation = (empId: string, dateISO: string) => {
