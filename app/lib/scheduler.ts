@@ -252,12 +252,12 @@ export async function generateSchedule({ year, month }: { year: number; month: n
 
     const available = employees.filter((e: any) => !offSet.has(String(e.id)));
 
-    // --- اختر morning ---
-    const morningStaff = randomPick(available, rng, coverageMorning);
-    const remainingAfterMorning = available.filter((e: any) => !morningStaff.includes(e));
-
-    // --- اختر evening ---
-    const eveningStaff = randomPick(remainingAfterMorning, rng, coverageEvening);
+    // --- اختر morning بالضبط حسب الإعداد ---
+    const morningCount = Math.min(coverageMorning, available.length);
+    const morningStaff = randomPick(available, rng, morningCount);
+    
+    // --- الباقي كلهم evening ---
+    const eveningStaff = available.filter((e: any) => !morningStaff.includes(e));
 
     const morningSet = new Set(morningStaff.map((e: any) => String(e.id)));
     const eveningSet = new Set(eveningStaff.map((e: any) => String(e.id)));
@@ -270,13 +270,12 @@ export async function generateSchedule({ year, month }: { year: number; month: n
       const empIdStr = String(emp.id);
 
       if (!offSet.has(empIdStr)) {
-        let finalShift: "Morning" | "Evening" = "Evening";
+        let finalShift: "Morning" | "Evening";
 
-        if (morningSet.has(empIdStr)) finalShift = "Morning";
-        else if (eveningSet.has(empIdStr)) finalShift = "Evening";
-        else {
-          // موظفات زائدات → وزّعيهم حسب الأسبوع
-          finalShift = getWeeklyShift(emp.id, wIdx);
+        if (morningSet.has(empIdStr)) {
+          finalShift = "Morning";
+        } else {
+          finalShift = "Evening";
         }
 
         symbol = isPartTime(emp)
