@@ -135,6 +135,7 @@ export async function generateSchedule({ year, month }: { year: number; month: n
 
   // **********************************************
   //   توزيع الأوف الأسبوعي: كل موظفة يوم واحد OFF في الأسبوع (غير الجمعة)
+  //   مع ضمان توزيع متوازن (أقل عدد OFF في كل يوم)
   // **********************************************
 
   // نجمع الأسابيع وأيامها (بدون الجمعة)
@@ -151,15 +152,21 @@ export async function generateSchedule({ year, month }: { year: number; month: n
   // weeklyOffDay: Map<weekIndex, Map<empId, dateISO>>
   const weeklyOffDay = new Map<number, Map<string, string>>();
 
+  // حساب الحد الأقصى للـ OFF في اليوم الواحد
+  // المتاحين = إجمالي الموظفات - عدد OFF
+  // لازم المتاحين >= coverageMorning + coverageEvening
+  const totalEmployees = employees.length;
+  const requiredAvailable = coverageMorning + coverageEvening;
+  const maxOffPerDay = Math.max(1, totalEmployees - requiredAvailable);
+
   for (const [wIdx, wDays] of weekDaysMap) {
     const offMap = new Map<string, string>();
     weeklyOffDay.set(wIdx, offMap);
 
-    // نخلط الأيام عشوائياً
-    const shuffledDays = [...wDays];
-    for (let i = shuffledDays.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1));
-      [shuffledDays[i], shuffledDays[j]] = [shuffledDays[j], shuffledDays[i]];
+    // عداد لكل يوم: كم موظفة أخذت OFF فيه
+    const dayOffCount = new Map<string, number>();
+    for (const d of wDays) {
+      dayOffCount.set(format(d, "yyyy-MM-dd"), 0);
     }
 
     // نخلط الموظفات عشوائياً
@@ -169,20 +176,45 @@ export async function generateSchedule({ year, month }: { year: number; month: n
       [shuffledEmps[i], shuffledEmps[j]] = [shuffledEmps[j], shuffledEmps[i]];
     }
 
-    // نوزّع: كل موظفة تاخذ يوم من الأيام المتاحة
     // مروه دائماً السبت (dow=6) إذا موجود في هذا الأسبوع
     const saturdayInWeek = wDays.find(d => getDay(d) === 6);
+    const saturdayISO = saturdayInWeek ? format(saturdayInWeek, "yyyy-MM-dd") : null;
 
-    let dayIndex = 0;
     for (const emp of shuffledEmps) {
-      if (emp.id === MARWA_ID && saturdayInWeek) {
+      if (emp.id === MARWA_ID && saturdayISO) {
         // مروه أوفها السبت
-        offMap.set(emp.id, format(saturdayInWeek, "yyyy-MM-dd"));
+        offMap.set(emp.id, saturdayISO);
+        dayOffCount.set(saturdayISO, (dayOffCount.get(saturdayISO) || 0) + 1);
       } else {
-        // باقي الموظفات: نوزّع بالتساوي على الأيام
-        const assignedDay = shuffledDays[dayIndex % shuffledDays.length];
-        offMap.set(emp.id, format(assignedDay, "yyyy-MM-dd"));
-        dayIndex++;
+        // اختر اليوم اللي فيه أقل عدد OFF (مع عدم تجاوز الحد الأقصى)
+        let bestDay: string | null = null;
+        let minCount = Infinity;
+
+        for (const d of wDays) {
+          const iso = format(d, "yyyy-MM-dd");
+          const count = dayOffCount.get(iso) || 0;
+          if (count < maxOffPerDay && count < minCount) {
+            minCount = count;
+            bestDay = iso;
+          }
+        }
+
+        // لو كل الأيام وصلت الحد الأقصى، اختر أي يوم بأقل عدد
+        if (!bestDay) {
+          for (const d of wDays) {
+            const iso = format(d, "yyyy-MM-dd");
+            const count = dayOffCount.get(iso) || 0;
+            if (count < minCount) {
+              minCount = count;
+              bestDay = iso;
+            }
+          }
+        }
+
+        if (bestDay) {
+          offMap.set(emp.id, bestDay);
+          dayOffCount.set(bestDay, (dayOffCount.get(bestDay) || 0) + 1);
+        }
       }
     }
   }
