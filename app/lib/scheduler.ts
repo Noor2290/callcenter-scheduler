@@ -75,6 +75,38 @@ export async function generateSchedule({ year, month }: { year: number; month: n
   const coverageMorning = Number(map.morningCoverage) || Number(map.coverageMorning) || 5;
   const coverageEvening = Number(map.eveningCoverage) || Number(map.coverageEvening) || 6;
 
+  // ----------- vacation requests -----------
+  // جلب طلبات الإجازات للشهر الحالي
+  const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+  const endDate = `${year}-${String(month).padStart(2, '0')}-31`;
+  
+  const { data: vacationRequests } = await sb
+    .from("requests")
+    .select("employee_id, start_date, end_date, type")
+    .or(`start_date.lte.${endDate},end_date.gte.${startDate}`);
+
+  // بناء map للإجازات: employeeId -> Set of dates (ISO)
+  const vacationMap = new Map<string, Set<string>>();
+  if (vacationRequests) {
+    for (const req of vacationRequests as any[]) {
+      if (req.type !== "Vacation") continue;
+      const empId = String(req.employee_id);
+      if (!vacationMap.has(empId)) vacationMap.set(empId, new Set());
+      
+      // إضافة كل الأيام بين start_date و end_date
+      const reqStart = new Date(req.start_date);
+      const reqEnd = new Date(req.end_date);
+      for (let d = new Date(reqStart); d <= reqEnd; d.setDate(d.getDate() + 1)) {
+        vacationMap.get(empId)!.add(format(d, "yyyy-MM-dd"));
+      }
+    }
+  }
+
+  // دالة للتحقق إذا الموظفة في إجازة
+  const isOnVacation = (empId: string, dateISO: string) => {
+    return vacationMap.has(empId) && vacationMap.get(empId)!.has(dateISO);
+  };
+
   // ----------- previous month flip -----------
   const prevMonth = month === 1 ? 12 : month - 1;
   const prevYear = month === 1 ? year - 1 : year;
@@ -250,7 +282,11 @@ export async function generateSchedule({ year, month }: { year: number; month: n
     //     توزيع Morning / Evening حسب الإعدادات
     // ==========================
 
-    const available = employees.filter((e: any) => !offSet.has(String(e.id)));
+    // المتاحين = ليسوا في OFF ولا في إجازة
+    const available = employees.filter((e: any) => {
+      const empIdStr = String(e.id);
+      return !offSet.has(empIdStr) && !isOnVacation(empIdStr, iso);
+    });
 
     // --- اختر morning بالضبط حسب الإعداد ---
     const morningCount = Math.min(coverageMorning, available.length);
@@ -266,10 +302,19 @@ export async function generateSchedule({ year, month }: { year: number; month: n
     //     Apply final assignments
     // ==========================
     for (const emp of employees) {
-      let symbol = OFF;
       const empIdStr = String(emp.id);
+      let symbol: string;
 
-      if (!offSet.has(empIdStr)) {
+      // أولاً: تحقق من الإجازة
+      if (isOnVacation(empIdStr, iso)) {
+        symbol = VAC;
+      }
+      // ثانياً: تحقق من OFF
+      else if (offSet.has(empIdStr)) {
+        symbol = OFF;
+      }
+      // ثالثاً: توزيع الشفتات
+      else {
         let finalShift: "Morning" | "Evening";
 
         if (morningSet.has(empIdStr)) {
