@@ -57,7 +57,7 @@ export async function GET(
 
     // Auto-generate when requested or when no assignments exist yet
     if (regen || assigns.length === 0) {
-      await generateSchedule({ year: yearNum, month: monthNum, useBetween });
+      await generateSchedule({ year: yearNum, month: monthNum });
       const { data: monthRow2 } = await sb
         .from('months')
         .select('id, year, month')
@@ -193,13 +193,30 @@ export async function GET(
 
     ws.addRow([]);
 
-    // ترويسة الأيام (إنجليزي + رقم)
-    const daysRow1 = ws.addRow(['', 'ID', ...Array.from({ length: daysInMonth }, (_, i) => {
-      const date = new Date(yearNum, monthNum - 1, i + 1);
-      const day = date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
-      return day;
-    })]);
-    const daysRow2 = ws.addRow(['NAME', '', ...Array.from({ length: daysInMonth }, (_, i) => i + 1)]);
+    // ترويسة الأيام - تبدأ من اليوم الفعلي للشهر
+    // مثال: إذا 1 يناير = الخميس، يبدأ من عمود الخميس
+    const firstDayOfMonth = new Date(yearNum, monthNum - 1, 1);
+    const firstDayDow = firstDayOfMonth.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+    
+    // أسماء الأيام بالترتيب من السبت (بداية الأسبوع)
+    const dayNames = ['SAT', 'SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI'];
+    // تحويل من getDay (0=Sun) إلى ترتيبنا (0=Sat)
+    const getDayIndex = (dow: number) => (dow + 1) % 7; // Sun=1, Mon=2, ..., Sat=0
+    
+    // بناء صف أسماء الأيام وأرقام التواريخ
+    const dayNamesRow: string[] = [];
+    const dayNumbersRow: (number | string)[] = [];
+    
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = new Date(yearNum, monthNum - 1, d);
+      const dow = date.getDay();
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
+      dayNamesRow.push(dayName);
+      dayNumbersRow.push(d);
+    }
+    
+    const daysRow1 = ws.addRow(['', 'ID', ...dayNamesRow]);
+    const daysRow2 = ws.addRow(['NAME', '', ...dayNumbersRow]);
     // دمج خانة عنوان يسار الجدول لتكون فوق عمودَي الاسم والرقم وبامتداد صفّي الترويسة
     safeMerge(daysRow1.number, 1, daysRow1.number, 1);
     safeMerge(daysRow2.number, 1, daysRow2.number, 1);
