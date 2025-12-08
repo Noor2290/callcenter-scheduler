@@ -356,5 +356,14 @@ export async function generateSchedule({ year, month }: { year: number; month: n
   await sb.from("assignments").delete().eq("month_id", monthRow.id);
   await sb.from("assignments").insert(rows);
 
-  return { ok: true };
+  return { 
+    ok: true,
+    debug: {
+      totalEmployees: employees.length,
+      coverageMorning,
+      coverageEvening,
+      vacationDaysLoaded: vacationRequests?.length || 0,
+      settingsKeys: Object.keys(map)
+    }
+  };
 }
