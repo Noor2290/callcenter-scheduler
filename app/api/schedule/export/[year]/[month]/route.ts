@@ -250,10 +250,12 @@ export async function GET(
     });
 
     // 📋 تعبئة بيانات الموظفين
+    // Use string keys to ensure consistent matching
     const grid: Record<string, Record<string, string>> = {};
     for (const a of assigns ?? []) {
-      grid[a.employee_id] ||= {};
-      grid[a.employee_id][a.date] = a.symbol;
+      const empId = String(a.employee_id);
+      grid[empId] ||= {};
+      grid[empId][a.date] = a.symbol;
     }
 
     for (const e of emps) {
@@ -271,7 +273,8 @@ export async function GET(
       for (let d = 1; d <= daysInMonth; d++) {
         const col = 2 + d;
         const iso = `${yearNum}-${String(monthNum).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        let symbol = grid[e.id]?.[iso] ?? '';
+        const empIdStr = String(e.id);
+        let symbol = grid[empIdStr]?.[iso] ?? '';
         // إذا كان خيار Between مفعّل وهذه هي الموظفة المختارة، استبدل رمز العمل بـ B
         if (useBetween && betweenEmployeeId === e.id && symbol && symbol !== 'O' && symbol !== 'V') {
           symbol = 'B';
