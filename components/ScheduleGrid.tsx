@@ -25,6 +25,7 @@ export default function ScheduleGrid() {
   const [isPending, startTransition] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   // load settings for year/month
   useEffect(() => {
@@ -61,37 +62,43 @@ export default function ScheduleGrid() {
 
   useEffect(() => { loadMonth(); }, [settings.year, settings.month]);
 
-  function generate() {
+  async function generate() {
+    console.log('Generate clicked! Settings:', settings);
+    
     if (!settings.year || !settings.month) { 
+      console.log('Missing year or month!');
       setMsg('الرجاء تحديد السنة والشهر أولاً'); 
       return; 
     }
     
+    console.log('Starting generation for:', settings.year, settings.month);
+    setIsGenerating(true);
     setMsg('جاري إنشاء جدول جديد...');
     
-    // استخدام بذرة عشوائية فريدة في كل مرة لضمان اختلاف الجداول
-    const seed = `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
-    fetch('/api/schedule/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        year: settings.year, 
-        month: settings.month, 
-        seed: seed,
-        invertFirstWeek: true // الحفاظ على عكس الوردية للأسبوع الأول
-      })
-    })
-    .then(res => res.json())
-    .then(data => {
+    try {
+      const res = await fetch('/api/schedule/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          year: settings.year, 
+          month: settings.month
+        })
+      });
+      
+      const data = await res.json();
+      console.log('Generate response:', data);
+      
       if (data.error) throw new Error(data.error);
+      
+      // إعادة تحميل الجدول
       loadMonth();
-      setMsg('تم إنشاء الجدول بنجاح. يمكنك تعديله يدوياً إذا لزم الأمر.');
-    })
-    .catch(err => {
+      setMsg(`تم إنشاء الجدول بنجاح! (موظفات: ${data.debug?.totalEmployees || '?'}, صباح: ${data.debug?.coverageMorning || '?'}, مساء: ${data.debug?.coverageEvening || '?'})`);
+    } catch (err: any) {
       console.error('Error generating schedule:', err);
       setMsg('حدث خطأ أثناء إنشاء الجدول: ' + (err.message || 'غير معروف'));
-    });
+    } finally {
+      setIsGenerating(false);
+    }
   }
 
   function exportExcel() {
@@ -183,9 +190,9 @@ export default function ScheduleGrid() {
         <button 
           onClick={generate} 
           className="px-4 py-2 bg-indigo-600 text-white rounded disabled:opacity-60 flex items-center gap-2" 
-          disabled={isPending}
+          disabled={isPending || isGenerating}
         >
-          {isPending ? (
+          {(isPending || isGenerating) ? (
             <>
               <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>

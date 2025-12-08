@@ -75,8 +75,9 @@ export async function generateSchedule({ year, month }: { year: number; month: n
   // طباعة الإعدادات للتحقق
   console.log("Settings map:", map);
   
-  const coverageMorning = Number(map.morningCoverage) || Number(map.coverageMorning) || Number(map.morning_coverage) || 5;
-  const coverageEvening = Number(map.eveningCoverage) || Number(map.coverageEvening) || Number(map.evening_coverage) || 6;
+  // المفتاح الصحيح هو coverageMorning / coverageEvening (من SettingsForm)
+  const coverageMorning = Number(map.coverageMorning) || 5;
+  const coverageEvening = Number(map.coverageEvening) || 6;
   
   console.log("Coverage - Morning:", coverageMorning, "Evening:", coverageEvening);
 
@@ -94,7 +95,9 @@ export async function generateSchedule({ year, month }: { year: number; month: n
     for (const req of vacationRequests as any[]) {
       const empId = String(req.employee_id);
       if (!vacationMap.has(empId)) vacationMap.set(empId, new Set());
-      vacationMap.get(empId)!.add(req.date);
+      // تنسيق التاريخ للتأكد من التطابق
+      const normalizedDate = format(new Date(req.date), "yyyy-MM-dd");
+      vacationMap.get(empId)!.add(normalizedDate);
     }
   }
   
