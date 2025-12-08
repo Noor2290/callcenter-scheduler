@@ -66,9 +66,8 @@ export async function generateSchedule({ year, month }: { year: number; month: n
     .select("*")
     .order("name", { ascending: true });
 
-  // ----------- تحديد ولاء (Part-Time) -----------
-  const isPartTime = (emp: any) =>
-    emp.name.includes(PART_TIME_CODE) || emp.employment_type === "PartTime";
+  // ----------- تحديد الموظفات Part-Time بناءً على نوع التوظيف -----------
+  const isPartTime = (emp: any) => emp.employment_type === "PartTime";
 
   // ----------- جلب تغطية الشفتات من الإعدادات -----------
   const { data: settings } = await sb.from("settings").select("key,value");
