@@ -446,16 +446,15 @@ export async function generateSchedule({
     const shuffledMorning = shuffle(morningPreferred);
     const shuffledEvening = shuffle(eveningPreferred);
     
-    // Assign exactly morningCoverage to Morning
+    // ═══════════════════════════════════════════════════════════════════════
+    // STEP 6.1: Select exactly morningCoverage for Morning
+    // ═══════════════════════════════════════════════════════════════════════
     const finalMorning: Set<string> = new Set();
-    const finalEvening: Set<string> = new Set();
     
     // First, fill Morning from those who prefer Morning
     for (const emp of shuffledMorning) {
       if (finalMorning.size < morningCoverage) {
         finalMorning.add(String(emp.id));
-      } else {
-        finalEvening.add(String(emp.id));
       }
     }
     
@@ -463,12 +462,27 @@ export async function generateSchedule({
     for (const emp of shuffledEvening) {
       if (finalMorning.size < morningCoverage) {
         finalMorning.add(String(emp.id));
-      } else {
+      }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // STEP 6.2: Select exactly eveningCoverage for Evening from remaining
+    // ═══════════════════════════════════════════════════════════════════════
+    const remaining = availableForShift.filter(emp => !finalMorning.has(String(emp.id)));
+    const shuffledRemaining = shuffle(remaining);
+    const finalEvening: Set<string> = new Set();
+    
+    for (const emp of shuffledRemaining) {
+      if (finalEvening.size < eveningCoverage) {
         finalEvening.add(String(emp.id));
       }
     }
     
-    // Build rows for this day
+    // ═══════════════════════════════════════════════════════════════════════
+    // STEP 6.3: Build rows for this day
+    // Employee must be in: Morning, Evening, OFF, or VAC
+    // Extra employees (not in Morning/Evening) get OFF
+    // ═══════════════════════════════════════════════════════════════════════
     for (const emp of employees) {
       const empId = String(emp.id);
       let symbol: string;
@@ -479,8 +493,12 @@ export async function generateSchedule({
         symbol = OFF;
       } else if (finalMorning.has(empId)) {
         symbol = getShiftSymbol(emp, "Morning");
-      } else {
+      } else if (finalEvening.has(empId)) {
         symbol = getShiftSymbol(emp, "Evening");
+      } else {
+        // Extra employee not assigned to Morning or Evening
+        // This happens when total available > morningCoverage + eveningCoverage
+        symbol = OFF;
       }
       
       rows.push({
