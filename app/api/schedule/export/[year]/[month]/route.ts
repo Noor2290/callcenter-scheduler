@@ -257,6 +257,17 @@ export async function GET(
       grid[empId] ||= {};
       grid[empId][a.date] = a.symbol;
     }
+    
+    // Debug: log employees and their assignment counts
+    console.log('[Export] Employees:', emps.length);
+    console.log('[Export] Assignments:', assigns.length);
+    for (const e of emps) {
+      const empIdStr = String(e.id);
+      const assignCount = Object.keys(grid[empIdStr] || {}).length;
+      if (assignCount === 0) {
+        console.log(`[Export] WARNING: ${e.name} (id=${e.id}) has NO assignments!`);
+      }
+    }
 
     for (const e of emps) {
       const r = ws.addRow([]);
