@@ -10,8 +10,18 @@ export async function GET() {
     const map = Object.fromEntries((settings ?? []).map((r: any) => [r.key, r.value]));
     const year = map.year ? Number(map.year) : undefined;
     const month = map.month ? Number(map.month) : undefined;
+    
+    // Coverage settings
+    const coverageMorning = Number(map.coverageMorning || map.coveragemorning) || 5;
+    const coverageEvening = Number(map.coverageEvening || map.coverageevening) || 6;
 
-    const out: any = { year, month };
+    const out: any = { 
+      year, 
+      month,
+      coverageMorning,
+      coverageEvening,
+      allSettings: map
+    };
 
     // تعريف نوع Month
     type Month = {
