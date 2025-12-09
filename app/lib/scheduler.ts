@@ -209,88 +209,79 @@ export async function generateSchedule({
   console.log(`[STEP 3] Previous month shifts loaded: ${prevMonthLastShift.size}`);
 
   // ═══════════════════════════════════════════════════════════════════════
-  // STEP 4: ASSIGN WEEKLY PATTERNS (BALANCED RANDOM)
+  // STEP 4: ASSIGN WEEKLY PATTERNS (COVERAGE-BASED)
   // 
-  // Each employee gets one of the 4 patterns:
-  // - Pattern A: M, E, M, E
-  // - Pattern B: M, M, E, E
-  // - Pattern C: E, M, E, M
-  // - Pattern D: E, E, M, M
+  // CRITICAL: We must ensure that for each week:
+  // - Exactly morningCoverage employees are assigned Morning
+  // - Exactly eveningCoverage employees are assigned Evening
   // 
-  // Continuity: if last month ended with Morning, start with Evening pattern
-  // Balance: distribute patterns evenly among employees
+  // Strategy:
+  // - For Week 1,3: First morningCoverage employees = Morning, rest = Evening
+  // - For Week 2,4: First morningCoverage employees = Evening, rest = Morning
+  // - This creates alternating patterns automatically
   // ═══════════════════════════════════════════════════════════════════════
   
-  console.log(`\n[STEP 4] Assigning weekly patterns...`);
+  console.log(`\n[STEP 4] Assigning weekly patterns (coverage-based)...`);
+  console.log(`[STEP 4] Required: Morning=${morningCoverage}, Evening=${eveningCoverage}`);
   
   // empId -> weekIdx -> Shift
   const weeklyShifts = new Map<string, Map<number, Shift>>();
   
-  // Track pattern usage for balance
-  const patternUsage = new Map<string, number>();
-  patternUsage.set("A", 0);
-  patternUsage.set("B", 0);
-  patternUsage.set("C", 0);
-  patternUsage.set("D", 0);
-  
-  // Shuffle employees for random assignment
-  const shuffledEmployees = shuffle([...employees]);
-  
-  for (const emp of shuffledEmployees) {
-    const empId = String(emp.id);
-    const shiftMap = new Map<number, Shift>();
-    
-    // Determine required starting shift (opposite of previous month)
-    let requiredStartShift: Shift;
-    if (prevMonthLastShift.has(empId)) {
-      requiredStartShift = prevMonthLastShift.get(empId) === "Morning" ? "Evening" : "Morning";
-    } else {
-      // New employee: random start, but try to balance
-      const morningPatterns = patternUsage.get("A")! + patternUsage.get("B")!;
-      const eveningPatterns = patternUsage.get("C")! + patternUsage.get("D")!;
-      requiredStartShift = morningPatterns <= eveningPatterns ? "Morning" : "Evening";
-    }
-    
-    // Get patterns that start with required shift
-    const validPatterns = getPatternsStartingWith(requiredStartShift);
-    
-    // Choose the least used pattern for balance
-    let selectedPattern: Shift[];
-    let selectedPatternName: string;
-    
-    if (requiredStartShift === "Morning") {
-      // Choose between A and B
-      if (patternUsage.get("A")! <= patternUsage.get("B")!) {
-        selectedPattern = PATTERN_A;
-        selectedPatternName = "A";
-      } else {
-        selectedPattern = PATTERN_B;
-        selectedPatternName = "B";
-      }
-    } else {
-      // Choose between C and D
-      if (patternUsage.get("C")! <= patternUsage.get("D")!) {
-        selectedPattern = PATTERN_C;
-        selectedPatternName = "C";
-      } else {
-        selectedPattern = PATTERN_D;
-        selectedPatternName = "D";
-      }
-    }
-    
-    patternUsage.set(selectedPatternName, patternUsage.get(selectedPatternName)! + 1);
-    
-    // Assign pattern to weeks
-    for (let i = 0; i < weekIndices.length; i++) {
-      const weekIdx = weekIndices[i];
-      const shift = selectedPattern[i % selectedPattern.length];
-      shiftMap.set(weekIdx, shift);
-    }
-    
-    weeklyShifts.set(empId, shiftMap);
+  // Initialize shift maps for all employees
+  for (const emp of employees) {
+    weeklyShifts.set(String(emp.id), new Map<number, Shift>());
   }
   
-  console.log(`[STEP 4] Pattern distribution: A=${patternUsage.get("A")}, B=${patternUsage.get("B")}, C=${patternUsage.get("C")}, D=${patternUsage.get("D")}`);
+  // Shuffle employees once for the month (random order)
+  const shuffledEmployees = shuffle([...employees]);
+  
+  // For each week, assign shifts to ensure exact coverage
+  for (let weekNum = 0; weekNum < weekIndices.length; weekNum++) {
+    const weekIdx = weekIndices[weekNum];
+    
+    // Determine which employees get Morning this week
+    // Alternate: odd weeks flip the assignment
+    const flipThisWeek = weekNum % 2 === 1;
+    
+    // Check previous month for continuity on first week
+    let useFlippedStart = false;
+    if (weekNum === 0 && prevMonthLastShift.size > 0) {
+      // Count how many were Morning last month
+      let morningCount = 0;
+      for (const [empId, shift] of prevMonthLastShift) {
+        if (shift === "Morning") morningCount++;
+      }
+      // If most were Morning, start with Evening (flip)
+      useFlippedStart = morningCount > prevMonthLastShift.size / 2;
+    }
+    
+    const shouldFlip = weekNum === 0 ? useFlippedStart : flipThisWeek;
+    
+    // Assign shifts for this week
+    for (let i = 0; i < shuffledEmployees.length; i++) {
+      const emp = shuffledEmployees[i];
+      const empId = String(emp.id);
+      
+      // First morningCoverage employees get one shift, rest get the other
+      let shift: Shift;
+      if (i < morningCoverage) {
+        shift = shouldFlip ? "Evening" : "Morning";
+      } else {
+        shift = shouldFlip ? "Morning" : "Evening";
+      }
+      
+      weeklyShifts.get(empId)!.set(weekIdx, shift);
+    }
+    
+    // Log this week's distribution
+    let mCount = 0, eCount = 0;
+    for (const emp of employees) {
+      const shift = weeklyShifts.get(String(emp.id))?.get(weekIdx);
+      if (shift === "Morning") mCount++;
+      else eCount++;
+    }
+    console.log(`[STEP 4] Week ${weekNum + 1} (idx=${weekIdx}): Morning=${mCount}, Evening=${eCount}, flipped=${shouldFlip}`);
+  }
 
   // ═══════════════════════════════════════════════════════════════════════
   // STEP 5: ASSIGN WEEKLY OFF DAYS
@@ -590,13 +581,7 @@ export async function generateSchedule({
       eveningCoverage,
       weeks: numWeeks,
       assignments: rows.length,
-      issues,
-      patternDistribution: {
-        A: patternUsage.get("A"),
-        B: patternUsage.get("B"),
-        C: patternUsage.get("C"),
-        D: patternUsage.get("D")
-      }
+      issues
     }
   };
 }
