@@ -231,46 +231,78 @@ export async function generateSchedule({
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // STEP 4: ASSIGN WEEKLY SHIFTS (FAIR DISTRIBUTION)
+  // STEP 4: ASSIGN WEEKLY SHIFTS (COVERAGE-BASED DISTRIBUTION)
   // 
   // Rules:
-  // - Each employee alternates: Morning week → Evening week → ...
-  // - First week: opposite of last week in previous month
-  // - If no previous data: random initial assignment
-  // - Ensures no employee stays in same shift all month
+  // - Morning group size = morningCoverage (from settings)
+  // - Evening group size = eveningCoverage (from settings)
+  // - Groups alternate each week
+  // - Week 1: Group A = Morning, Group B = Evening
+  // - Week 2: Group A = Evening, Group B = Morning
+  // - Continuity from previous month preserved
   // ═══════════════════════════════════════════════════════════════════════
   
   console.log(`\n[STEP 4] Assigning weekly shifts...`);
+  console.log(`[STEP 4] Required: Morning=${morningCoverage}, Evening=${eveningCoverage}`);
+  console.log(`[STEP 4] Total employees: ${employees.length}`);
+  
+  // Create two groups based on coverage settings
+  // Group A = first morningCoverage employees (alphabetically)
+  // Group B = remaining employees
+  const groupA: string[] = [];
+  const groupB: string[] = [];
+  
+  for (let i = 0; i < employees.length; i++) {
+    const empId = String(employees[i].id);
+    if (i < morningCoverage) {
+      groupA.push(empId);
+    } else {
+      groupB.push(empId);
+    }
+  }
+  
+  console.log(`[STEP 4] Group A (Morning first): ${groupA.length} employees`);
+  console.log(`[STEP 4] Group B (Evening first): ${groupB.length} employees`);
+  
+  // Determine starting pattern based on previous month
+  // If previous month's last week had Group A as Morning, this month starts with Group A as Evening
+  let groupAStartsAsMorning = true; // Default
+  
+  if (prevMonthLastShift.size > 0 && groupA.length > 0) {
+    // Check what shift Group A had in previous month
+    const firstGroupAEmployee = groupA[0];
+    const prevShift = prevMonthLastShift.get(firstGroupAEmployee);
+    if (prevShift) {
+      // Opposite of previous month
+      groupAStartsAsMorning = prevShift === "Evening";
+      console.log(`[STEP 4] Continuity: Group A was ${prevShift} last month, now starts as ${groupAStartsAsMorning ? 'Morning' : 'Evening'}`);
+    }
+  }
   
   // empId -> weekIdx -> shift
   const weeklyShiftAssignment = new Map<string, Map<number, "Morning" | "Evening">>();
   
+  // Initialize maps
   for (const emp of employees) {
-    const empId = String(emp.id);
-    const shiftMap = new Map<number, "Morning" | "Evening">();
+    weeklyShiftAssignment.set(String(emp.id), new Map());
+  }
+  
+  // Assign shifts for each week
+  for (let i = 0; i < weekIndices.length; i++) {
+    const weekIdx = weekIndices[i];
     
-    // Determine first week's shift
-    let currentShift: "Morning" | "Evening";
+    // Alternate pattern each week
+    const groupAIsMorning = (i % 2 === 0) ? groupAStartsAsMorning : !groupAStartsAsMorning;
     
-    if (prevMonthLastShift.has(empId)) {
-      // CONTINUITY: opposite of last month's last shift
-      const lastShift = prevMonthLastShift.get(empId)!;
-      currentShift = lastShift === "Morning" ? "Evening" : "Morning";
-    } else {
-      // NEW EMPLOYEE: random start
-      currentShift = Math.random() < 0.5 ? "Morning" : "Evening";
+    // Assign Group A
+    for (const empId of groupA) {
+      weeklyShiftAssignment.get(empId)!.set(weekIdx, groupAIsMorning ? "Morning" : "Evening");
     }
     
-    // Assign shifts for each week (alternating)
-    for (let i = 0; i < weekIndices.length; i++) {
-      const weekIdx = weekIndices[i];
-      shiftMap.set(weekIdx, currentShift);
-      
-      // Flip for next week
-      currentShift = currentShift === "Morning" ? "Evening" : "Morning";
+    // Assign Group B
+    for (const empId of groupB) {
+      weeklyShiftAssignment.get(empId)!.set(weekIdx, groupAIsMorning ? "Evening" : "Morning");
     }
-    
-    weeklyShiftAssignment.set(empId, shiftMap);
   }
   
   // Log weekly distribution

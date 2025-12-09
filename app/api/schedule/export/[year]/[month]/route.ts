@@ -259,8 +259,13 @@ export async function GET(
     }
     
     // Debug: log employees and their assignment counts
+    console.log('[Export] ========================================');
+    console.log('[Export] Year:', yearNum, 'Month:', monthNum);
+    console.log('[Export] MonthRow:', monthRow?.id);
     console.log('[Export] Employees:', emps.length);
     console.log('[Export] Assignments:', assigns.length);
+    console.log('[Export] Grid keys:', Object.keys(grid).length);
+    console.log('[Export] ========================================');
     for (const e of emps) {
       const empIdStr = String(e.id);
       const assignCount = Object.keys(grid[empIdStr] || {}).length;
