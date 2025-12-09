@@ -137,10 +137,29 @@ export async function generateSchedule({
     }
   }
   
-  const morningCoverage = Number(settings['coverageMorning'] || settings['coveragemorning'] || settings['morningCoveragePerDay']) || 5;
-  const eveningCoverage = Number(settings['coverageEvening'] || settings['coverageevening'] || settings['eveningCoveragePerDay']) || 6;
+  // Debug: show all settings keys
+  console.log(`[STEP 1] All settings keys:`, Object.keys(settings).filter(k => k === k.toLowerCase()));
   
-  console.log(`[STEP 1] Settings: Morning=${morningCoverage}, Evening=${eveningCoverage}`);
+  // Read coverage from settings - try multiple possible key names
+  const morningCoverage = Number(
+    settings['coverageMorning'] || 
+    settings['coveragemorning'] || 
+    settings['morningCoveragePerDay'] ||
+    settings['morningcoverageperday'] ||
+    settings['morning_coverage'] ||
+    settings['MorningCoverage']
+  ) || 5;
+  
+  const eveningCoverage = Number(
+    settings['coverageEvening'] || 
+    settings['coverageevening'] || 
+    settings['eveningCoveragePerDay'] ||
+    settings['eveningcoverageperday'] ||
+    settings['evening_coverage'] ||
+    settings['EveningCoverage']
+  ) || 6;
+  
+  console.log(`[STEP 1] Settings loaded: Morning=${morningCoverage}, Evening=${eveningCoverage}`);
 
   // Load Vacations
   const { data: vacationData } = await sb
