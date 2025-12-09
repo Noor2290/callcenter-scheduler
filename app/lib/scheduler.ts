@@ -447,6 +447,16 @@ export async function generateSchedule({
     const shuffledEvening = shuffle(eveningPreferred);
     
     // ═══════════════════════════════════════════════════════════════════════
+    // CHECK: Is coverage possible?
+    // ═══════════════════════════════════════════════════════════════════════
+    const totalNeeded = morningCoverage + eveningCoverage;
+    const totalAvailable = availableForShift.length;
+    
+    if (totalAvailable < totalNeeded) {
+      console.warn(`⚠️ Coverage impossible on ${dateISO}: need ${totalNeeded}, available ${totalAvailable}`);
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
     // STEP 6.1: Select exactly morningCoverage for Morning
     // ═══════════════════════════════════════════════════════════════════════
     const finalMorning: Set<string> = new Set();
@@ -475,6 +485,24 @@ export async function generateSchedule({
     for (const emp of shuffledRemaining) {
       if (finalEvening.size < eveningCoverage) {
         finalEvening.add(String(emp.id));
+      }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // STEP 6.2.1: If Evening still not enough, take from Morning (rebalance)
+    // ═══════════════════════════════════════════════════════════════════════
+    if (finalEvening.size < eveningCoverage && finalMorning.size > 0) {
+      // Convert Morning set to array for iteration
+      const morningArray = Array.from(finalMorning);
+      const shuffledMorningArray = shuffle(morningArray);
+      
+      for (const empId of shuffledMorningArray) {
+        if (finalEvening.size >= eveningCoverage) break;
+        if (finalMorning.size <= 1) break; // Keep at least 1 in Morning
+        
+        // Move from Morning to Evening
+        finalMorning.delete(empId);
+        finalEvening.add(empId);
       }
     }
     
