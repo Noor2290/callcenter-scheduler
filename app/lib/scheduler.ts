@@ -1,11 +1,12 @@
 // ═══════════════════════════════════════════════════════════════════════════
-//  GENERATE SCHEDULE — HOSPITAL-GRADE v5.0
+//  GENERATE SCHEDULE — HOSPITAL-GRADE v6.0
 //  
-//  ✅ FAIR WEEKLY PATTERN DISTRIBUTION (NO FIXED GROUPS)
-//  ✅ RANDOM BALANCED ASSIGNMENT
-//  ✅ EXACT DAILY COVERAGE (Morning=4, Evening=7 from settings)
-//  ✅ MONTH CONTINUITY
+//  ✅ 4 FIXED WEEKLY PATTERNS (A, B, C, D)
+//  ✅ BALANCED RANDOM PATTERN ASSIGNMENT
+//  ✅ EXACT DAILY COVERAGE FROM SETTINGS
+//  ✅ MONTH CONTINUITY (opposite of previous month)
 //  ✅ OFF/VACATION/OFFREQUEST RULES
+//  ✅ NO FIXED GROUPS, NO ALPHABETICAL ORDER
 // ═══════════════════════════════════════════════════════════════════════════
 
 import {
@@ -34,12 +35,26 @@ const EPOCH_SATURDAY = new Date(2020, 0, 4);
 // TYPES
 // ═══════════════════════════════════════════════════════════════════════════
 type Shift = "Morning" | "Evening";
-type WeekPattern = Shift[];
+
 interface Employee {
   id: number | string;
   name: string;
   employment_type?: string;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE 4 FIXED PATTERNS
+// ═══════════════════════════════════════════════════════════════════════════
+// Pattern A: M, E, M, E (alternating starting Morning)
+// Pattern B: M, M, E, E (two consecutive starting Morning)
+// Pattern C: E, M, E, M (alternating starting Evening)
+// Pattern D: E, E, M, M (two consecutive starting Evening)
+const PATTERN_A: Shift[] = ["Morning", "Evening", "Morning", "Evening"];
+const PATTERN_B: Shift[] = ["Morning", "Morning", "Evening", "Evening"];
+const PATTERN_C: Shift[] = ["Evening", "Morning", "Evening", "Morning"];
+const PATTERN_D: Shift[] = ["Evening", "Evening", "Morning", "Morning"];
+
+const ALL_PATTERNS = [PATTERN_A, PATTERN_B, PATTERN_C, PATTERN_D];
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HELPER FUNCTIONS
@@ -80,34 +95,9 @@ function shuffle<T>(arr: T[]): T[] {
   return result;
 }
 
-/** Generate balanced weekly patterns for employees */
-function generateWeeklyPatterns(numWeeks: number, startShift: Shift): WeekPattern[] {
-  // Pattern A: M, E, M, E (alternating)
-  // Pattern B: M, M, E, E (two consecutive)
-  const patterns: WeekPattern[] = [];
-  
-  if (numWeeks === 2) {
-    // Only 2 weeks: M,E or E,M
-    patterns.push([startShift, startShift === "Morning" ? "Evening" : "Morning"]);
-    patterns.push([startShift === "Morning" ? "Evening" : "Morning", startShift]);
-  } else if (numWeeks === 3) {
-    patterns.push(["Morning", "Evening", "Morning"]);
-    patterns.push(["Evening", "Morning", "Evening"]);
-    patterns.push(["Morning", "Morning", "Evening"]);
-    patterns.push(["Evening", "Evening", "Morning"]);
-  } else if (numWeeks >= 4) {
-    // 4+ weeks: balanced patterns
-    patterns.push(["Morning", "Evening", "Morning", "Evening"]);
-    patterns.push(["Evening", "Morning", "Evening", "Morning"]);
-    patterns.push(["Morning", "Morning", "Evening", "Evening"]);
-    patterns.push(["Evening", "Evening", "Morning", "Morning"]);
-  } else {
-    // 1 week
-    patterns.push([startShift]);
-    patterns.push([startShift === "Morning" ? "Evening" : "Morning"]);
-  }
-  
-  return patterns;
+/** Get patterns that start with the required shift (for continuity) */
+function getPatternsStartingWith(startShift: Shift): Shift[][] {
+  return ALL_PATTERNS.filter(p => p[0] === startShift);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -122,7 +112,7 @@ export async function generateSchedule({
 }) {
   const sb = supabaseServer();
   console.log(`\n${'═'.repeat(60)}`);
-  console.log(`[SCHEDULER v5] Generating schedule for ${year}-${month}`);
+  console.log(`[SCHEDULER v6] Generating schedule for ${year}-${month}`);
   console.log(`${'═'.repeat(60)}\n`);
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -163,7 +153,7 @@ export async function generateSchedule({
     vacationSet.add(`${v.employee_id}_${format(new Date(v.date), "yyyy-MM-dd")}`);
   }
   
-  const offRequestMap = new Map<string, string>(); // empId_weekIdx -> dateISO
+  const offRequestMap = new Map<string, string>();
   for (const o of offRequestData || []) {
     const dateISO = format(new Date(o.date), "yyyy-MM-dd");
     const weekIdx = globalWeekIndex(new Date(o.date));
@@ -219,13 +209,29 @@ export async function generateSchedule({
   console.log(`[STEP 3] Previous month shifts loaded: ${prevMonthLastShift.size}`);
 
   // ═══════════════════════════════════════════════════════════════════════
-  // STEP 4: ASSIGN WEEKLY PATTERNS (RANDOM BALANCED)
+  // STEP 4: ASSIGN WEEKLY PATTERNS (BALANCED RANDOM)
+  // 
+  // Each employee gets one of the 4 patterns:
+  // - Pattern A: M, E, M, E
+  // - Pattern B: M, M, E, E
+  // - Pattern C: E, M, E, M
+  // - Pattern D: E, E, M, M
+  // 
+  // Continuity: if last month ended with Morning, start with Evening pattern
+  // Balance: distribute patterns evenly among employees
   // ═══════════════════════════════════════════════════════════════════════
   
   console.log(`\n[STEP 4] Assigning weekly patterns...`);
   
   // empId -> weekIdx -> Shift
   const weeklyShifts = new Map<string, Map<number, Shift>>();
+  
+  // Track pattern usage for balance
+  const patternUsage = new Map<string, number>();
+  patternUsage.set("A", 0);
+  patternUsage.set("B", 0);
+  patternUsage.set("C", 0);
+  patternUsage.set("D", 0);
   
   // Shuffle employees for random assignment
   const shuffledEmployees = shuffle([...employees]);
@@ -234,17 +240,45 @@ export async function generateSchedule({
     const empId = String(emp.id);
     const shiftMap = new Map<number, Shift>();
     
-    // Determine starting shift (opposite of previous month)
-    let startShift: Shift = "Morning";
+    // Determine required starting shift (opposite of previous month)
+    let requiredStartShift: Shift;
     if (prevMonthLastShift.has(empId)) {
-      startShift = prevMonthLastShift.get(empId) === "Morning" ? "Evening" : "Morning";
+      requiredStartShift = prevMonthLastShift.get(empId) === "Morning" ? "Evening" : "Morning";
     } else {
-      startShift = Math.random() < 0.5 ? "Morning" : "Evening";
+      // New employee: random start, but try to balance
+      const morningPatterns = patternUsage.get("A")! + patternUsage.get("B")!;
+      const eveningPatterns = patternUsage.get("C")! + patternUsage.get("D")!;
+      requiredStartShift = morningPatterns <= eveningPatterns ? "Morning" : "Evening";
     }
     
-    // Generate pattern for this employee
-    const patterns = generateWeeklyPatterns(numWeeks, startShift);
-    const selectedPattern = patterns[Math.floor(Math.random() * patterns.length)];
+    // Get patterns that start with required shift
+    const validPatterns = getPatternsStartingWith(requiredStartShift);
+    
+    // Choose the least used pattern for balance
+    let selectedPattern: Shift[];
+    let selectedPatternName: string;
+    
+    if (requiredStartShift === "Morning") {
+      // Choose between A and B
+      if (patternUsage.get("A")! <= patternUsage.get("B")!) {
+        selectedPattern = PATTERN_A;
+        selectedPatternName = "A";
+      } else {
+        selectedPattern = PATTERN_B;
+        selectedPatternName = "B";
+      }
+    } else {
+      // Choose between C and D
+      if (patternUsage.get("C")! <= patternUsage.get("D")!) {
+        selectedPattern = PATTERN_C;
+        selectedPatternName = "C";
+      } else {
+        selectedPattern = PATTERN_D;
+        selectedPatternName = "D";
+      }
+    }
+    
+    patternUsage.set(selectedPatternName, patternUsage.get(selectedPatternName)! + 1);
     
     // Assign pattern to weeks
     for (let i = 0; i < weekIndices.length; i++) {
@@ -255,16 +289,25 @@ export async function generateSchedule({
     
     weeklyShifts.set(empId, shiftMap);
   }
+  
+  console.log(`[STEP 4] Pattern distribution: A=${patternUsage.get("A")}, B=${patternUsage.get("B")}, C=${patternUsage.get("C")}, D=${patternUsage.get("D")}`);
 
   // ═══════════════════════════════════════════════════════════════════════
   // STEP 5: ASSIGN WEEKLY OFF DAYS
+  // 
+  // Rules:
+  // - Friday: OFF for everyone (handled in STEP 6)
+  // - Marwa: Saturday OFF always
+  // - Each employee: 1 OFF per week (random, balanced)
+  // - OffRequest = the weekly OFF
+  // - Cannot be on Vacation day
   // ═══════════════════════════════════════════════════════════════════════
   
   console.log(`\n[STEP 5] Assigning weekly OFF days...`);
   
   const weekDays = new Map<number, string[]>();
   for (const d of allDays) {
-    if (getDay(d) === 5) continue;
+    if (getDay(d) === 5) continue; // Skip Friday
     const wIdx = globalWeekIndex(d);
     if (!weekDays.has(wIdx)) weekDays.set(wIdx, []);
     weekDays.get(wIdx)!.push(format(d, "yyyy-MM-dd"));
@@ -280,36 +323,39 @@ export async function generateSchedule({
     const availableDays = weekDays.get(weekIdx) || [];
     if (availableDays.length === 0) continue;
     
+    // Track OFF count per day for balancing
     const dayOffCount = new Map<string, number>();
     for (const d of availableDays) dayOffCount.set(d, 0);
     
+    // Process employees in random order
     for (const emp of shuffle([...employees])) {
       const empId = String(emp.id);
       
       // Check OffRequest first
       const offReq = getOffRequest(empId, weekIdx);
-      if (offReq) {
+      if (offReq && availableDays.includes(offReq)) {
         offMap.set(empId, offReq);
-        if (dayOffCount.has(offReq)) dayOffCount.set(offReq, dayOffCount.get(offReq)! + 1);
+        dayOffCount.set(offReq, (dayOffCount.get(offReq) || 0) + 1);
         continue;
       }
       
-      // Marwa: Saturday OFF
+      // Marwa: Saturday OFF always
       if (empId === MARWA_ID) {
         const saturday = availableDays.find(d => getDay(new Date(d)) === 6);
         if (saturday && !isVacation(empId, saturday)) {
           offMap.set(empId, saturday);
-          dayOffCount.set(saturday, dayOffCount.get(saturday)! + 1);
+          dayOffCount.set(saturday, (dayOffCount.get(saturday) || 0) + 1);
           continue;
         }
       }
       
-      // Find day with minimum OFFs
+      // Find day with minimum OFFs (balanced distribution)
       let bestDay: string | null = null;
       let minCount = Infinity;
+      
       for (const d of availableDays) {
         if (isVacation(empId, d)) continue;
-        const count = dayOffCount.get(d)!;
+        const count = dayOffCount.get(d) || 0;
         if (count < minCount) {
           minCount = count;
           bestDay = d;
@@ -318,13 +364,20 @@ export async function generateSchedule({
       
       if (bestDay) {
         offMap.set(empId, bestDay);
-        dayOffCount.set(bestDay, dayOffCount.get(bestDay)! + 1);
+        dayOffCount.set(bestDay, (dayOffCount.get(bestDay) || 0) + 1);
       }
     }
   }
 
   // ═══════════════════════════════════════════════════════════════════════
   // STEP 6: BUILD DAILY ASSIGNMENTS WITH EXACT COVERAGE
+  // 
+  // For each day:
+  // 1. Friday → OFF for all
+  // 2. Vacation → V (excluded from coverage)
+  // 3. Weekly OFF → O (excluded from coverage)
+  // 4. Available employees → assign Morning/Evening based on weekly pattern
+  // 5. Ensure exactly morningCoverage Morning and eveningCoverage Evening
   // ═══════════════════════════════════════════════════════════════════════
   
   console.log(`\n[STEP 6] Building daily assignments with exact coverage...`);
@@ -358,23 +411,24 @@ export async function generateSchedule({
     
     const weekOffMap = weeklyOffDays.get(weekIdx) || new Map();
     
-    // Separate employees by availability
-    const unavailable: Employee[] = [];
+    // Categorize employees
+    const onVacation: Employee[] = [];
+    const onOff: Employee[] = [];
     const availableForShift: Employee[] = [];
     
     for (const emp of employees) {
       const empId = String(emp.id);
       
       if (isVacation(empId, dateISO)) {
-        unavailable.push(emp);
+        onVacation.push(emp);
       } else if (weekOffMap.get(empId) === dateISO) {
-        unavailable.push(emp);
+        onOff.push(emp);
       } else {
         availableForShift.push(emp);
       }
     }
     
-    // Get weekly shift preference for each available employee
+    // Separate available employees by their weekly pattern preference
     const morningPreferred: Employee[] = [];
     const eveningPreferred: Employee[] = [];
     
@@ -388,15 +442,15 @@ export async function generateSchedule({
       }
     }
     
-    // Shuffle for randomness
+    // Shuffle for fair random selection within each group
     const shuffledMorning = shuffle(morningPreferred);
     const shuffledEvening = shuffle(eveningPreferred);
     
-    // Select exactly morningCoverage for Morning, rest for Evening
+    // Assign exactly morningCoverage to Morning
     const finalMorning: Set<string> = new Set();
     const finalEvening: Set<string> = new Set();
     
-    // First, fill Morning from preferred
+    // First, fill Morning from those who prefer Morning
     for (const emp of shuffledMorning) {
       if (finalMorning.size < morningCoverage) {
         finalMorning.add(String(emp.id));
@@ -456,17 +510,23 @@ export async function generateSchedule({
     const mCount = dayRows.filter(r => [FT_MORNING, PT_MORNING].includes(r.symbol)).length;
     const eCount = dayRows.filter(r => [FT_EVENING, PT_EVENING].includes(r.symbol)).length;
     
-    if (mCount !== morningCoverage || eCount < eveningCoverage) {
-      console.warn(`[WARN] ${dateISO}: M=${mCount}/${morningCoverage}, E=${eCount}/${eveningCoverage}`);
+    if (mCount !== morningCoverage) {
+      console.warn(`[WARN] ${dateISO}: Morning=${mCount}/${morningCoverage}`);
+      issues++;
+    }
+    if (eCount < eveningCoverage) {
+      console.warn(`[WARN] ${dateISO}: Evening=${eCount}/${eveningCoverage}`);
       issues++;
     }
   }
   
-  console.log(issues === 0 ? `[STEP 7] ✅ All days OK!` : `[STEP 7] ⚠️ ${issues} issues`);
+  console.log(issues === 0 ? `[STEP 7] ✅ All days meet coverage!` : `[STEP 7] ⚠️ ${issues} coverage issues`);
 
   // ═══════════════════════════════════════════════════════════════════════
   // STEP 8: SAVE TO DATABASE
   // ═══════════════════════════════════════════════════════════════════════
+  
+  console.log(`\n[STEP 8] Saving to database...`);
   
   await sb.from("assignments").delete().eq("month_id", monthRow.id);
   const { error: insertErr } = await sb.from("assignments").insert(rows);
@@ -484,7 +544,13 @@ export async function generateSchedule({
       eveningCoverage,
       weeks: numWeeks,
       assignments: rows.length,
-      issues
+      issues,
+      patternDistribution: {
+        A: patternUsage.get("A"),
+        B: patternUsage.get("B"),
+        C: patternUsage.get("C"),
+        D: patternUsage.get("D")
+      }
     }
   };
 }
