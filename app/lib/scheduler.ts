@@ -1,12 +1,11 @@
 // ═══════════════════════════════════════════════════════════════════════════
-//  GENERATE SCHEDULE — HOSPITAL-GRADE v6.0
+//  GENERATE SCHEDULE — v7.0 (SETTINGS-BASED COVERAGE)
 //  
-//  ✅ 4 FIXED WEEKLY PATTERNS (A, B, C, D)
-//  ✅ BALANCED RANDOM PATTERN ASSIGNMENT
-//  ✅ EXACT DAILY COVERAGE FROM SETTINGS
-//  ✅ MONTH CONTINUITY (opposite of previous month)
-//  ✅ OFF/VACATION/OFFREQUEST RULES
-//  ✅ NO FIXED GROUPS, NO ALPHABETICAL ORDER
+//  ✅ COVERAGE FROM SETTINGS ONLY (NO DYNAMIC CALCULATION)
+//  ✅ FAIRNESS: Equal Morning/Evening distribution per employee
+//  ✅ CONTINUITY: Opposite shift from previous month
+//  ✅ OFF RULES: Friday all, Marwa Saturday, 1 weekly OFF per employee
+//  ✅ NO GROUPS, NO ALPHABETICAL ORDER
 // ═══════════════════════════════════════════════════════════════════════════
 
 import {
@@ -41,20 +40,6 @@ interface Employee {
   name: string;
   employment_type?: string;
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// THE 4 FIXED PATTERNS
-// ═══════════════════════════════════════════════════════════════════════════
-// Pattern A: M, E, M, E (alternating starting Morning)
-// Pattern B: M, M, E, E (two consecutive starting Morning)
-// Pattern C: E, M, E, M (alternating starting Evening)
-// Pattern D: E, E, M, M (two consecutive starting Evening)
-const PATTERN_A: Shift[] = ["Morning", "Evening", "Morning", "Evening"];
-const PATTERN_B: Shift[] = ["Morning", "Morning", "Evening", "Evening"];
-const PATTERN_C: Shift[] = ["Evening", "Morning", "Evening", "Morning"];
-const PATTERN_D: Shift[] = ["Evening", "Evening", "Morning", "Morning"];
-
-const ALL_PATTERNS = [PATTERN_A, PATTERN_B, PATTERN_C, PATTERN_D];
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HELPER FUNCTIONS
@@ -93,11 +78,6 @@ function shuffle<T>(arr: T[]): T[] {
     [result[i], result[j]] = [result[j], result[i]];
   }
   return result;
-}
-
-/** Get patterns that start with the required shift (for continuity) */
-function getPatternsStartingWith(startShift: Shift): Shift[][] {
-  return ALL_PATTERNS.filter(p => p[0] === startShift);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -209,79 +189,43 @@ export async function generateSchedule({
   console.log(`[STEP 3] Previous month shifts loaded: ${prevMonthLastShift.size}`);
 
   // ═══════════════════════════════════════════════════════════════════════
-  // STEP 4: ASSIGN WEEKLY PATTERNS (COVERAGE-BASED)
+  // STEP 4: TRACK FAIRNESS (Morning/Evening count per employee)
   // 
-  // CRITICAL: We must ensure that for each week:
-  // - Exactly morningCoverage employees are assigned Morning
-  // - Exactly eveningCoverage employees are assigned Evening
-  // 
-  // Strategy:
-  // - For Week 1,3: First morningCoverage employees = Morning, rest = Evening
-  // - For Week 2,4: First morningCoverage employees = Evening, rest = Morning
-  // - This creates alternating patterns automatically
+  // We track how many Morning and Evening shifts each employee has
+  // to ensure fair distribution throughout the month.
   // ═══════════════════════════════════════════════════════════════════════
   
-  console.log(`\n[STEP 4] Assigning weekly patterns (coverage-based)...`);
-  console.log(`[STEP 4] Required: Morning=${morningCoverage}, Evening=${eveningCoverage}`);
+  console.log(`\n[STEP 4] Initializing fairness tracking...`);
+  console.log(`[STEP 4] Settings: Morning=${morningCoverage}, Evening=${eveningCoverage}`);
   
-  // empId -> weekIdx -> Shift
-  const weeklyShifts = new Map<string, Map<number, Shift>>();
+  // Track shift counts for fairness
+  const morningCount = new Map<string, number>();
+  const eveningCount = new Map<string, number>();
   
-  // Initialize shift maps for all employees
   for (const emp of employees) {
-    weeklyShifts.set(String(emp.id), new Map<number, Shift>());
+    const empId = String(emp.id);
+    morningCount.set(empId, 0);
+    eveningCount.set(empId, 0);
   }
   
-  // Shuffle employees once for the month (random order)
-  const shuffledEmployees = shuffle([...employees]);
+  // Load previous month last shift for continuity
+  // If last shift was Morning → prefer Evening this month start
+  // If last shift was Evening → prefer Morning this month start
+  const preferredStartShift = new Map<string, Shift>();
   
-  // For each week, assign shifts to ensure exact coverage
-  for (let weekNum = 0; weekNum < weekIndices.length; weekNum++) {
-    const weekIdx = weekIndices[weekNum];
-    
-    // Determine which employees get Morning this week
-    // Alternate: odd weeks flip the assignment
-    const flipThisWeek = weekNum % 2 === 1;
-    
-    // Check previous month for continuity on first week
-    let useFlippedStart = false;
-    if (weekNum === 0 && prevMonthLastShift.size > 0) {
-      // Count how many were Morning last month
-      let morningCount = 0;
-      for (const [empId, shift] of prevMonthLastShift) {
-        if (shift === "Morning") morningCount++;
-      }
-      // If most were Morning, start with Evening (flip)
-      useFlippedStart = morningCount > prevMonthLastShift.size / 2;
+  for (const emp of employees) {
+    const empId = String(emp.id);
+    const lastShift = prevMonthLastShift.get(empId);
+    if (lastShift) {
+      // Opposite of last month
+      preferredStartShift.set(empId, lastShift === "Morning" ? "Evening" : "Morning");
+    } else {
+      // New employee: random start
+      preferredStartShift.set(empId, Math.random() < 0.5 ? "Morning" : "Evening");
     }
-    
-    const shouldFlip = weekNum === 0 ? useFlippedStart : flipThisWeek;
-    
-    // Assign shifts for this week
-    for (let i = 0; i < shuffledEmployees.length; i++) {
-      const emp = shuffledEmployees[i];
-      const empId = String(emp.id);
-      
-      // First morningCoverage employees get one shift, rest get the other
-      let shift: Shift;
-      if (i < morningCoverage) {
-        shift = shouldFlip ? "Evening" : "Morning";
-      } else {
-        shift = shouldFlip ? "Morning" : "Evening";
-      }
-      
-      weeklyShifts.get(empId)!.set(weekIdx, shift);
-    }
-    
-    // Log this week's distribution
-    let mCount = 0, eCount = 0;
-    for (const emp of employees) {
-      const shift = weeklyShifts.get(String(emp.id))?.get(weekIdx);
-      if (shift === "Morning") mCount++;
-      else eCount++;
-    }
-    console.log(`[STEP 4] Week ${weekNum + 1} (idx=${weekIdx}): Morning=${mCount}, Evening=${eCount}, flipped=${shouldFlip}`);
   }
+  
+  console.log(`[STEP 4] Continuity loaded for ${prevMonthLastShift.size} employees`);
 
   // ═══════════════════════════════════════════════════════════════════════
   // STEP 5: ASSIGN WEEKLY OFF DAYS
@@ -381,12 +325,17 @@ export async function generateSchedule({
     code: string;
   }> = [];
   
+  // Track if this is the first working day (for continuity)
+  let isFirstWorkingDay = true;
+  
   for (const day of allDays) {
     const dateISO = format(day, "yyyy-MM-dd");
     const dow = getDay(day);
     const weekIdx = globalWeekIndex(day);
     
-    // Friday: OFF for everyone
+    // ═══════════════════════════════════════════════════════════════════════
+    // FRIDAY: OFF for everyone
+    // ═══════════════════════════════════════════════════════════════════════
     if (dow === 5) {
       for (const emp of employees) {
         rows.push({
@@ -402,105 +351,107 @@ export async function generateSchedule({
     
     const weekOffMap = weeklyOffDays.get(weekIdx) || new Map();
     
-    // Categorize employees
-    const onVacation: Employee[] = [];
-    const onOff: Employee[] = [];
+    // ═══════════════════════════════════════════════════════════════════════
+    // CATEGORIZE EMPLOYEES: Vacation, OFF, Available
+    // ═══════════════════════════════════════════════════════════════════════
     const availableForShift: Employee[] = [];
     
     for (const emp of employees) {
       const empId = String(emp.id);
       
-      if (isVacation(empId, dateISO)) {
-        onVacation.push(emp);
-      } else if (weekOffMap.get(empId) === dateISO) {
-        onOff.push(emp);
-      } else {
+      if (!isVacation(empId, dateISO) && weekOffMap.get(empId) !== dateISO) {
         availableForShift.push(emp);
       }
     }
     
-    // Separate available employees by their weekly pattern preference
-    const morningPreferred: Employee[] = [];
-    const eveningPreferred: Employee[] = [];
-    
-    for (const emp of availableForShift) {
-      const empId = String(emp.id);
-      const weeklyShift = weeklyShifts.get(empId)?.get(weekIdx) || "Morning";
-      if (weeklyShift === "Morning") {
-        morningPreferred.push(emp);
-      } else {
-        eveningPreferred.push(emp);
-      }
-    }
-    
-    // Shuffle for fair random selection within each group
-    const shuffledMorning = shuffle(morningPreferred);
-    const shuffledEvening = shuffle(eveningPreferred);
-    
-    // ═══════════════════════════════════════════════════════════════════════
-    // CHECK: Is coverage possible?
-    // ═══════════════════════════════════════════════════════════════════════
-    const totalNeeded = morningCoverage + eveningCoverage;
     const totalAvailable = availableForShift.length;
     
-    if (totalAvailable < totalNeeded) {
-      console.warn(`⚠️ Coverage impossible on ${dateISO}: need ${totalNeeded}, available ${totalAvailable}`);
+    // ═══════════════════════════════════════════════════════════════════════
+    // APPLY COVERAGE FROM SETTINGS (NO DYNAMIC CALCULATION)
+    // 
+    // Rules:
+    // 1. If available >= Morning + Evening → use exact settings
+    // 2. If available < Morning + Evening → prioritize Morning, then Evening
+    // 3. Never exceed available count
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    // Calculate actual coverage for this day
+    let actualMorning = Math.min(morningCoverage, totalAvailable);
+    let actualEvening = Math.min(eveningCoverage, totalAvailable - actualMorning);
+    
+    // Log warning if coverage is impossible
+    if (totalAvailable < morningCoverage + eveningCoverage) {
+      console.warn(`⚠️ ${dateISO}: Available=${totalAvailable}, Need=${morningCoverage + eveningCoverage}, Actual M=${actualMorning}/E=${actualEvening}`);
     }
     
     // ═══════════════════════════════════════════════════════════════════════
-    // STEP 6.1: Select exactly morningCoverage for Morning
+    // FAIR SELECTION: Sort by least shifts, then by continuity preference
     // ═══════════════════════════════════════════════════════════════════════
-    const finalMorning: Set<string> = new Set();
     
-    // First, fill Morning from those who prefer Morning
-    for (const emp of shuffledMorning) {
-      if (finalMorning.size < morningCoverage) {
-        finalMorning.add(String(emp.id));
-      }
-    }
-    
-    // If not enough Morning, take from Evening preferred
-    for (const emp of shuffledEvening) {
-      if (finalMorning.size < morningCoverage) {
-        finalMorning.add(String(emp.id));
-      }
-    }
-    
-    // ═══════════════════════════════════════════════════════════════════════
-    // STEP 6.2: Select exactly eveningCoverage for Evening from remaining
-    // ═══════════════════════════════════════════════════════════════════════
-    const remaining = availableForShift.filter(emp => !finalMorning.has(String(emp.id)));
-    const shuffledRemaining = shuffle(remaining);
-    const finalEvening: Set<string> = new Set();
-    
-    for (const emp of shuffledRemaining) {
-      if (finalEvening.size < eveningCoverage) {
-        finalEvening.add(String(emp.id));
-      }
-    }
-    
-    // ═══════════════════════════════════════════════════════════════════════
-    // STEP 6.2.1: If Evening still not enough, take from Morning (rebalance)
-    // ═══════════════════════════════════════════════════════════════════════
-    if (finalEvening.size < eveningCoverage && finalMorning.size > 0) {
-      // Convert Morning set to array for iteration
-      const morningArray = Array.from(finalMorning);
-      const shuffledMorningArray = shuffle(morningArray);
+    // Sort available employees by fairness (least Morning shifts first for Morning selection)
+    const sortedForMorning = [...availableForShift].sort((a, b) => {
+      const aId = String(a.id);
+      const bId = String(b.id);
+      const aMorning = morningCount.get(aId) || 0;
+      const bMorning = morningCount.get(bId) || 0;
       
-      for (const empId of shuffledMorningArray) {
-        if (finalEvening.size >= eveningCoverage) break;
-        if (finalMorning.size <= 1) break; // Keep at least 1 in Morning
-        
-        // Move from Morning to Evening
-        finalMorning.delete(empId);
-        finalEvening.add(empId);
+      // First: fewer Morning shifts = higher priority
+      if (aMorning !== bMorning) return aMorning - bMorning;
+      
+      // Second: if first working day, prefer those who need opposite of last month
+      if (isFirstWorkingDay) {
+        const aPref = preferredStartShift.get(aId);
+        const bPref = preferredStartShift.get(bId);
+        if (aPref === "Morning" && bPref !== "Morning") return -1;
+        if (bPref === "Morning" && aPref !== "Morning") return 1;
       }
+      
+      // Third: random tiebreaker
+      return Math.random() - 0.5;
+    });
+    
+    // Select Morning employees
+    const finalMorning = new Set<string>();
+    for (let i = 0; i < actualMorning && i < sortedForMorning.length; i++) {
+      finalMorning.add(String(sortedForMorning[i].id));
     }
     
+    // Remaining employees (not in Morning)
+    const remainingForEvening = availableForShift.filter(emp => !finalMorning.has(String(emp.id)));
+    
+    // Sort remaining by fairness (least Evening shifts first)
+    const sortedForEvening = [...remainingForEvening].sort((a, b) => {
+      const aId = String(a.id);
+      const bId = String(b.id);
+      const aEvening = eveningCount.get(aId) || 0;
+      const bEvening = eveningCount.get(bId) || 0;
+      
+      // First: fewer Evening shifts = higher priority
+      if (aEvening !== bEvening) return aEvening - bEvening;
+      
+      // Second: if first working day, prefer those who need opposite of last month
+      if (isFirstWorkingDay) {
+        const aPref = preferredStartShift.get(aId);
+        const bPref = preferredStartShift.get(bId);
+        if (aPref === "Evening" && bPref !== "Evening") return -1;
+        if (bPref === "Evening" && aPref !== "Evening") return 1;
+      }
+      
+      // Third: random tiebreaker
+      return Math.random() - 0.5;
+    });
+    
+    // Select Evening employees
+    const finalEvening = new Set<string>();
+    for (let i = 0; i < actualEvening && i < sortedForEvening.length; i++) {
+      finalEvening.add(String(sortedForEvening[i].id));
+    }
+    
+    // Mark first working day as done
+    isFirstWorkingDay = false;
+    
     // ═══════════════════════════════════════════════════════════════════════
-    // STEP 6.3: Build rows for this day
-    // Employee must be in: Morning, Evening, OFF, or VAC
-    // Extra employees (not in Morning/Evening) get OFF
+    // BUILD ROWS FOR THIS DAY
     // ═══════════════════════════════════════════════════════════════════════
     for (const emp of employees) {
       const empId = String(emp.id);
@@ -512,11 +463,14 @@ export async function generateSchedule({
         symbol = OFF;
       } else if (finalMorning.has(empId)) {
         symbol = getShiftSymbol(emp, "Morning");
+        // Update fairness counter
+        morningCount.set(empId, (morningCount.get(empId) || 0) + 1);
       } else if (finalEvening.has(empId)) {
         symbol = getShiftSymbol(emp, "Evening");
+        // Update fairness counter
+        eveningCount.set(empId, (eveningCount.get(empId) || 0) + 1);
       } else {
-        // Extra employee not assigned to Morning or Evening
-        // This happens when total available > morningCoverage + eveningCoverage
+        // Extra employee: not assigned to Morning or Evening
         symbol = OFF;
       }
       
@@ -531,6 +485,15 @@ export async function generateSchedule({
   }
   
   console.log(`[STEP 6] Total assignments: ${rows.length}`);
+  
+  // Log fairness summary
+  console.log(`\n[STEP 6] Fairness Summary:`);
+  for (const emp of employees) {
+    const empId = String(emp.id);
+    const m = morningCount.get(empId) || 0;
+    const e = eveningCount.get(empId) || 0;
+    console.log(`  ${emp.name}: Morning=${m}, Evening=${e}`);
+  }
 
   // ═══════════════════════════════════════════════════════════════════════
   // STEP 7: VERIFY COVERAGE
