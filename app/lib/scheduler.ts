@@ -424,9 +424,11 @@ export async function generateSchedule({
   // ═══════════════════════════════════════════════════════════════════════
   // الخطوة 4: توزيع الإجازات الأسبوعية (عشوائي)
   // ═══════════════════════════════════════════════════════════════════════
-  // - خلط الأيام عشوائياً لكل أسبوع
-  // - خلط الموظفات عشوائياً
-  // - اختيار يوم OFF من القائمة العشوائية
+  // - الجمعة: OFF للجميع (يتم في الخطوة 5)
+  // - مروة: السبت OFF دائماً
+  // - باقي الموظفات: OFF عشوائي من الأحد-الخميس فقط
+  // - لا يُسمح بـ OFF يوم السبت لغير مروة
+  // - حد أقصى 2 OFF لكل يوم
   // ═══════════════════════════════════════════════════════════════════════
   
   console.log(`\n[4] توزيع الإجازات الأسبوعية (عشوائي)...`);
@@ -439,13 +441,20 @@ export async function generateSchedule({
     weeklyOffDays.set(weekNum, offMap);
     
     const weekDays = weekDaysMap.get(weekNum) || [];
+    
     // أيام العمل (بدون الجمعة)
     const workDays = weekDays.filter(d => getDay(d) !== 5);
     
+    // أيام OFF المسموحة لغير مروة (الأحد=0 إلى الخميس=4 فقط، بدون السبت=6)
+    const offDaysForOthers = workDays.filter(d => {
+      const dow = getDay(d);
+      return dow >= 0 && dow <= 4; // الأحد، الإثنين، الثلاثاء، الأربعاء، الخميس
+    });
+    
     if (workDays.length === 0) continue;
     
-    // خلط الأيام عشوائياً باستخدام نفس seed
-    const shuffledDays = shuffleWithSeed([...workDays], actualSeed + weekNum * 500);
+    // خلط أيام OFF عشوائياً (للموظفات غير مروة)
+    const shuffledOffDays = shuffleWithSeed([...offDaysForOthers], actualSeed + weekNum * 500);
     
     // تتبع عدد OFF لكل يوم
     const dayOffCount = new Map<string, number>();
@@ -458,10 +467,61 @@ export async function generateSchedule({
     if (betweenEmployee) allEmpsForOff.push(betweenEmployee);
     const shuffledEmps = shuffleWithSeed(allEmpsForOff, actualSeed + weekNum * 700);
     
+    // ═══════════════════════════════════════════════════════════════════
+    // أولاً: معالجة مروة (السبت OFF)
+    // ═══════════════════════════════════════════════════════════════════
+    if (marwaId) {
+      const marwaEmp = allEmpsForOff.find(e => String(e.id) === marwaId);
+      if (marwaEmp) {
+        // التحقق من عدم وجود Vacation
+        let marwaHasVacation = false;
+        for (const d of workDays) {
+          const dateISO = format(d, "yyyy-MM-dd");
+          if (vacationSet.has(`${marwaId}_${dateISO}`)) {
+            marwaHasVacation = true;
+            break;
+          }
+        }
+        
+        if (!marwaHasVacation) {
+          const saturday = workDays.find(d => getDay(d) === 6);
+          if (saturday) {
+            const saturdayISO = format(saturday, "yyyy-MM-dd");
+            const count = dayOffCount.get(saturdayISO) || 0;
+            if (count < MAX_OFF_PER_DAY) {
+              offMap.set(marwaId, saturdayISO);
+              dayOffCount.set(saturdayISO, count + 1);
+            } else {
+              // السبت ممتلئ - اختيار أقرب يوم متاح
+              for (const d of shuffledOffDays) {
+                const dateISO = format(d, "yyyy-MM-dd");
+                const c = dayOffCount.get(dateISO) || 0;
+                if (c < MAX_OFF_PER_DAY) {
+                  offMap.set(marwaId, dateISO);
+                  dayOffCount.set(dateISO, c + 1);
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // ثانياً: معالجة باقي الموظفات
+    // ═══════════════════════════════════════════════════════════════════
     for (const emp of shuffledEmps) {
       const empId = String(emp.id);
       
+      // تخطي مروة (تم معالجتها)
+      if (empId === marwaId) continue;
+      
+      // تخطي إذا تم تعيين OFF بالفعل
+      if (offMap.has(empId)) continue;
+      
       // 1. التحقق من وجود طلب OFF مسبق
+      let hasOffRequest = false;
       for (const d of workDays) {
         const dateISO = format(d, "yyyy-MM-dd");
         if (offRequestSet.has(`${empId}_${dateISO}`)) {
@@ -469,11 +529,12 @@ export async function generateSchedule({
           if (count < MAX_OFF_PER_DAY) {
             offMap.set(empId, dateISO);
             dayOffCount.set(dateISO, count + 1);
+            hasOffRequest = true;
             break;
           }
         }
       }
-      if (offMap.has(empId)) continue;
+      if (hasOffRequest) continue;
       
       // 2. التحقق من وجود إجازة V - لا تعطى OFF إضافي
       let hasVacation = false;
@@ -486,22 +547,8 @@ export async function generateSchedule({
       }
       if (hasVacation) continue;
       
-      // 3. مروة: السبت OFF دائماً
-      if (marwaId && empId === marwaId) {
-        const saturday = workDays.find(d => getDay(d) === 6);
-        if (saturday) {
-          const dateISO = format(saturday, "yyyy-MM-dd");
-          const count = dayOffCount.get(dateISO) || 0;
-          if (count < MAX_OFF_PER_DAY) {
-            offMap.set(empId, dateISO);
-            dayOffCount.set(dateISO, count + 1);
-            continue;
-          }
-        }
-      }
-      
-      // 4. اختيار يوم OFF عشوائي من القائمة المخلوطة
-      for (const d of shuffledDays) {
+      // 3. اختيار يوم OFF عشوائي من الأحد-الخميس فقط
+      for (const d of shuffledOffDays) {
         const dateISO = format(d, "yyyy-MM-dd");
         const count = dayOffCount.get(dateISO) || 0;
         if (count < MAX_OFF_PER_DAY) {
@@ -511,6 +558,13 @@ export async function generateSchedule({
         }
       }
     }
+    
+    // طباعة ملخص الأسبوع
+    const offCounts: Record<string, number> = {};
+    for (const [day, count] of dayOffCount) {
+      if (count > 0) offCounts[day] = count;
+    }
+    console.log(`    - الأسبوع ${weekNum}: ${Object.entries(offCounts).map(([d, c]) => `${d}=${c}`).join(', ')}`);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
