@@ -116,11 +116,13 @@ export default function ScheduleGrid() {
     });
   }
 
-  // عند فتح الصفحة: توليد جدول جديد تلقائياً
+  // عند فتح الصفحة: توليد جدول جديد تلقائياً (لا يحمّل المحفوظ أبداً)
   useEffect(() => { 
     if (settings.year && settings.month) {
+      // دائماً توليد جدول جديد - لا نحمّل الجدول المحفوظ
       generateNewSchedule();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.year, settings.month]);
 
   // حفظ الجدول الحالي في DB
