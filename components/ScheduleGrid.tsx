@@ -314,76 +314,115 @@ export default function ScheduleGrid() {
   }, [settings.year, settings.month]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* معلومات الجدول */}
       {data && (
-        <div className="text-xs text-gray-600 flex items-center gap-4">
-          <span>الشهر: {data.month.year}-{String(data.month.month).padStart(2,'0')}</span>
-          <span>الموظفات: {data.employees.length}</span>
-          <span>التعيينات: {data.assignments.length}</span>
+        <div className="flex flex-wrap items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg border border-slate-200">
+            <span className="text-slate-400">📅</span>
+            <span className="text-sm font-medium text-slate-700">{data.month.year}/{String(data.month.month).padStart(2,'0')}</span>
+          </div>
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg border border-slate-200">
+            <span className="text-slate-400">👥</span>
+            <span className="text-sm font-medium text-slate-700">{data.employees.length} موظفة</span>
+          </div>
           {data.debug && (
             <>
-              <span className="text-yellow-600">صباح: {data.debug.coverageMorning}</span>
-              <span className="text-indigo-600">مساء: {data.debug.coverageEvening}</span>
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-yellow-50 rounded-lg border border-yellow-200">
+                <span>☀️</span>
+                <span className="text-sm font-medium text-yellow-700">صباح: {data.debug.coverageMorning}</span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 rounded-lg border border-indigo-200">
+                <span>🌙</span>
+                <span className="text-sm font-medium text-indigo-700">مساء: {data.debug.coverageEvening}</span>
+              </div>
             </>
           )}
-          {isPreviewMode && (
-            <span className="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded text-xs">معاينة - غير محفوظ</span>
-          )}
-          {!isPreviewMode && (
-            <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded text-xs">محفوظ</span>
-          )}
+          <div className="ms-auto">
+            {isPreviewMode ? (
+              <span className="badge badge-warning">
+                <span>⏳</span>
+                <span>معاينة - غير محفوظ</span>
+              </span>
+            ) : (
+              <span className="badge badge-success">
+                <span>✓</span>
+                <span>محفوظ</span>
+              </span>
+            )}
+          </div>
         </div>
       )}
       
       {/* أزرار التحكم */}
-      <div className="flex gap-2 items-center flex-wrap">
+      <div className="flex gap-3 items-center flex-wrap">
         {/* زر توليد جدول جديد */}
         <button 
           onClick={generateNewSchedule} 
-          className="px-4 py-2 bg-indigo-600 text-white rounded disabled:opacity-60 flex items-center gap-2" 
+          className="px-5 py-2.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl font-medium shadow-md hover:shadow-lg disabled:opacity-60 flex items-center gap-2 transition-all" 
           disabled={isPending || isGenerating}
         >
           {(isPending || isGenerating) ? (
             <>
-              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              جاري التوليد...
+              <span>جاري التوليد...</span>
             </>
           ) : (
-            '🔄 توليد جدول جديد'
+            <>
+              <span>🔄</span>
+              <span>توليد جدول جديد</span>
+            </>
           )}
         </button>
         
-        {/* زر حفظ الجدول - يحفظ الجدول المعروض فقط */}
+        {/* زر حفظ الجدول */}
         <button 
           onClick={saveCurrentScheduleToDb} 
-          className="px-4 py-2 bg-green-600 text-white rounded disabled:opacity-60" 
+          className="px-5 py-2.5 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl font-medium shadow-md hover:shadow-lg disabled:opacity-60 flex items-center gap-2 transition-all" 
           disabled={isPending || isGenerating || !isPreviewMode}
         >
-          💾 حفظ الجدول
+          <span>💾</span>
+          <span>حفظ الجدول</span>
         </button>
         
-        {/* زر تحميل الجدول المحفوظ */}
+        {/* زر تحميل المحفوظ */}
         <button 
           onClick={loadSavedSchedule} 
-          className="px-4 py-2 bg-gray-600 text-white rounded disabled:opacity-60" 
+          className="px-5 py-2.5 bg-slate-600 text-white rounded-xl font-medium hover:bg-slate-700 disabled:opacity-60 flex items-center gap-2 transition-all" 
           disabled={isPending}
         >
-          📂 تحميل المحفوظ
+          <span>📂</span>
+          <span>تحميل المحفوظ</span>
         </button>
         
         {/* زر حفظ التعديلات */}
-        <button onClick={saveChanges} className="px-4 py-2 bg-teal-600 text-white rounded disabled:opacity-60" disabled={isPending}>حفظ التعديلات</button>
+        <button 
+          onClick={saveChanges} 
+          className="px-5 py-2.5 bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-xl font-medium shadow-md hover:shadow-lg disabled:opacity-60 flex items-center gap-2 transition-all" 
+          disabled={isPending}
+        >
+          <span>✏️</span>
+          <span>حفظ التعديلات</span>
+        </button>
+        
+        <div className="h-8 w-px bg-slate-200 mx-1"></div>
         
         {/* زر تصدير Excel */}
-        <button onClick={exportExcel} className="px-4 py-2 bg-emerald-600 text-white rounded">تصدير Excel</button>
+        <button 
+          onClick={exportExcel} 
+          className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-xl font-medium shadow-md hover:shadow-lg flex items-center gap-2 transition-all"
+        >
+          <span>📥</span>
+          <span>تصدير Excel</span>
+        </button>
         
         {/* زر استيراد Excel */}
-        <label className="px-4 py-2 bg-sky-600 text-white rounded cursor-pointer disabled:opacity-60">
-          {isImporting ? 'جاري الاستيراد...' : 'استيراد من Excel'}
+        <label className="px-5 py-2.5 bg-gradient-to-r from-sky-500 to-sky-600 text-white rounded-xl font-medium shadow-md hover:shadow-lg cursor-pointer flex items-center gap-2 transition-all">
+          <span>📤</span>
+          <span>{isImporting ? 'جاري الاستيراد...' : 'استيراد Excel'}</span>
           <input
             type="file"
             accept=".xlsx,.xls"
@@ -401,55 +440,65 @@ export default function ScheduleGrid() {
       
       {/* رسالة الحالة */}
       {msg && (
-        <div className={`text-sm p-2 rounded ${msg.startsWith('✅') ? 'bg-green-100 text-green-800' : msg.startsWith('❌') ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'}`}>
-          {msg}
+        <div className={`text-sm p-4 rounded-xl flex items-center gap-3 ${
+          msg.startsWith('✅') 
+            ? 'bg-green-50 text-green-800 border border-green-200' 
+            : msg.startsWith('❌') 
+              ? 'bg-red-50 text-red-800 border border-red-200' 
+              : 'bg-blue-50 text-blue-800 border border-blue-200'
+        }`}>
+          <span className="text-lg">{msg.startsWith('✅') ? '✅' : msg.startsWith('❌') ? '❌' : 'ℹ️'}</span>
+          <span>{msg.replace(/^[✅❌]\s*/, '')}</span>
         </div>
       )}
 
       {!data ? (
-        <div className="text-sm text-gray-500">Load or set settings to view schedule…</div>
+        <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+          <span className="text-4xl mb-3">📊</span>
+          <span className="text-sm">جاري تحميل الجدول...</span>
+        </div>
       ) : (
-        <div className="overflow-x-auto border rounded" dir="ltr">
-          <table className="min-w-full text-xs">
-            <thead className="bg-gray-50">
+        <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm" dir="ltr">
+          <table className="min-w-full text-xs schedule-table">
+            <thead>
               <tr>
-                <th className="p-2 text-left">NAME</th>
-                <th className="p-2 text-center">ID</th>
+                <th className="p-3 text-left font-semibold sticky right-0 bg-slate-800 z-20">NAME</th>
+                <th className="p-3 text-center font-semibold bg-slate-800">ID</th>
                 {headerDays.map((d) => (
-                  <th key={d} className="p-2 text-center" style={{ minWidth: 36 }}>{d}</th>
+                  <th key={d} className="p-2 text-center font-medium" style={{ minWidth: 40 }}>{d}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {data.employees.map((emp) => (
-                <tr key={emp.id} className="border-t">
-                  <td className="p-2 whitespace-nowrap text-left">{emp.name}</td>
-                  <td className="p-2 text-center">{emp.code || '-'}</td>
+              {data.employees.map((emp, empIdx) => (
+                <tr key={emp.id} className={empIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                  <td className="p-2 whitespace-nowrap text-left font-medium text-slate-700 sticky right-0 bg-inherit border-l border-slate-200 z-10">
+                    {emp.name}
+                  </td>
+                  <td className="p-2 text-center text-slate-500 border-l border-slate-200">{emp.code || '-'}</td>
                   {headerDays.map((dStr, idx) => {
                     const iso = toISO(data.month.year, data.month.month, Number(dStr));
                     const val = grid[emp.id]?.[iso] ?? '';
                     const upper = val.toString().toUpperCase();
 
                     // تلوين بحسب نوع الشفت
-                    // صباح: MA*, M*, PT4 → أصفر فاتح
-                    // مساء: EA*, E*, PT5 → أزرق/بنفسجي فاتح
-                    // Off: O → رمادي فاتح
-                    // Vacation: V → برتقالي فاتح
-                    let color = '';
+                    let colorClass = '';
                     if (upper === 'O') {
-                      color = 'bg-gray-200';
+                      colorClass = 'shift-off';
                     } else if (upper === 'V') {
-                      color = 'bg-orange-200';
+                      colorClass = 'shift-vacation';
+                    } else if (upper === 'B') {
+                      colorClass = 'shift-between';
                     } else if (upper.startsWith('M') || upper === 'PT4') {
-                      color = 'bg-yellow-100';
+                      colorClass = 'shift-morning';
                     } else if (upper.startsWith('E') || upper === 'PT5') {
-                      color = 'bg-indigo-100';
+                      colorClass = 'shift-evening';
                     }
 
                     return (
-                      <td key={idx} className={"p-0 text-center " + color}>
+                      <td key={idx} className={`p-0 text-center border-l border-slate-100 ${colorClass}`}>
                         <input
-                          className="w-16 text-center p-1 border-0 focus:ring-0 bg-transparent"
+                          className="w-full text-center py-2 px-1 border-0 focus:ring-2 focus:ring-teal-500 focus:ring-inset bg-transparent font-medium text-slate-700"
                           value={val}
                           onChange={(e)=>setCell(emp.id, iso, e.target.value.toUpperCase())}
                         />
@@ -462,8 +511,30 @@ export default function ScheduleGrid() {
           </table>
         </div>
       )}
-      <div className="text-xs text-gray-600">
-        Legend: MA1/EA1 (FullTime), PT4/PT5 (PartTime), M2/E2 (Trainee), O Off, V Vacation
+      
+      {/* Legend */}
+      <div className="flex flex-wrap items-center gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+        <span className="font-medium text-slate-600">دليل الرموز:</span>
+        <div className="flex items-center gap-1.5">
+          <span className="w-6 h-6 rounded shift-morning flex items-center justify-center font-medium">M</span>
+          <span className="text-slate-600">صباح</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-6 h-6 rounded shift-evening flex items-center justify-center font-medium">E</span>
+          <span className="text-slate-600">مساء</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-6 h-6 rounded shift-off flex items-center justify-center font-medium">O</span>
+          <span className="text-slate-600">إجازة أسبوعية</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-6 h-6 rounded shift-vacation flex items-center justify-center font-medium">V</span>
+          <span className="text-slate-600">إجازة</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-6 h-6 rounded shift-between flex items-center justify-center font-medium">B</span>
+          <span className="text-slate-600">Between</span>
+        </div>
       </div>
     </div>
   );
