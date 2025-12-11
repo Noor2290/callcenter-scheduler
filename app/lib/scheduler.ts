@@ -422,10 +422,14 @@ export async function generateSchedule({
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // الخطوة 4: توزيع الإجازات الأسبوعية
+  // الخطوة 4: توزيع الإجازات الأسبوعية (عشوائي)
+  // ═══════════════════════════════════════════════════════════════════════
+  // - خلط الأيام عشوائياً لكل أسبوع
+  // - خلط الموظفات عشوائياً
+  // - اختيار يوم OFF من القائمة العشوائية
   // ═══════════════════════════════════════════════════════════════════════
   
-  console.log(`\n[4] توزيع الإجازات الأسبوعية...`);
+  console.log(`\n[4] توزيع الإجازات الأسبوعية (عشوائي)...`);
   
   // weekNum -> empId -> dateISO
   const weeklyOffDays = new Map<number, Map<string, string>>();
@@ -440,17 +444,21 @@ export async function generateSchedule({
     
     if (workDays.length === 0) continue;
     
+    // خلط الأيام عشوائياً باستخدام نفس seed
+    const shuffledDays = shuffleWithSeed([...workDays], actualSeed + weekNum * 500);
+    
     // تتبع عدد OFF لكل يوم
     const dayOffCount = new Map<string, number>();
     for (const d of workDays) {
       dayOffCount.set(format(d, "yyyy-MM-dd"), 0);
     }
     
-    // جميع الموظفات (عادية + between)
+    // جميع الموظفات (عادية + between) - مخلوطة عشوائياً
     const allEmpsForOff = [...regularEmployees];
     if (betweenEmployee) allEmpsForOff.push(betweenEmployee);
+    const shuffledEmps = shuffleWithSeed(allEmpsForOff, actualSeed + weekNum * 700);
     
-    for (const emp of allEmpsForOff) {
+    for (const emp of shuffledEmps) {
       const empId = String(emp.id);
       
       // 1. التحقق من وجود طلب OFF مسبق
@@ -492,22 +500,15 @@ export async function generateSchedule({
         }
       }
       
-      // 4. اختيار يوم OFF بأقل عدد إجازات
-      let bestDay: string | null = null;
-      let minCount = Infinity;
-      
-      for (const d of workDays) {
+      // 4. اختيار يوم OFF عشوائي من القائمة المخلوطة
+      for (const d of shuffledDays) {
         const dateISO = format(d, "yyyy-MM-dd");
         const count = dayOffCount.get(dateISO) || 0;
-        if (count < MAX_OFF_PER_DAY && count < minCount) {
-          minCount = count;
-          bestDay = dateISO;
+        if (count < MAX_OFF_PER_DAY) {
+          offMap.set(empId, dateISO);
+          dayOffCount.set(dateISO, count + 1);
+          break;
         }
-      }
-      
-      if (bestDay) {
-        offMap.set(empId, bestDay);
-        dayOffCount.set(bestDay, (dayOffCount.get(bestDay) || 0) + 1);
       }
     }
   }
