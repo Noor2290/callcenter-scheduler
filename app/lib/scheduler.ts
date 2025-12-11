@@ -268,11 +268,13 @@ export async function generateSchedule({
     console.log(`    - مروة: ${marwaEmployee.name} (ID: ${marwaId})`);
   }
   
-  // البحث عن Tooq Almaliki (مسائية دائماً)
+  // البحث عن Tooq Almaliki (مسائية دائماً) - في جميع الموظفات
   const TOOQ_ID = "3979";
-  const tooqEmployee = regularEmployees.find(e => String(e.id) === TOOQ_ID);
+  const tooqEmployee = allEmployees.find(e => String(e.id) === TOOQ_ID);
   if (tooqEmployee) {
     console.log(`    - Tooq Almaliki: ${tooqEmployee.name} (ID: ${TOOQ_ID}) - مسائية دائماً`);
+  } else {
+    console.log(`    - ⚠️ Tooq Almaliki (ID: ${TOOQ_ID}) غير موجودة!`);
   }
   
   // الموظفات المشاركات في التناوب (بدون Tooq)
