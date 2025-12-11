@@ -107,28 +107,31 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Dedupe rows to avoid duplicate key constraint violation
+    const dedupeMap = new Map<string, typeof rows[0]>();
+    for (const r of rows) {
+      dedupeMap.set(`${r.employee_id}|${r.date}`, r); // keep last occurrence
+    }
+    const uniqueRows = Array.from(dedupeMap.values());
+
     // Replace assignments EXACTLY: first delete all for this month, then insert
     await sb.from('assignments').delete().eq('month_id', monthRow.id);
-    if (rows.length > 0) {
+    if (uniqueRows.length > 0) {
       const BATCH = 500;
-      for (let i = 0; i < rows.length; i += BATCH) {
-        const chunk = rows.slice(i, i + BATCH).map((r) => ({ ...r, month_id: monthRow.id }));
+      for (let i = 0; i < uniqueRows.length; i += BATCH) {
+        const chunk = uniqueRows.slice(i, i + BATCH).map((r) => ({ ...r, month_id: monthRow.id }));
         const { error: insErr } = await sb.from('assignments').insert(chunk as any);
         if (insErr) throw insErr;
       }
     }
 
-    // Optionally auto-generate next month with inversion
+    // Optionally auto-generate next month
     let nextGen: any = undefined;
     if (autoNext) {
-      // read useBetween setting for next generation behavior
-      const { data: srows } = await sb.from('settings').select('key,value');
-      const smap = Object.fromEntries((srows ?? []).map((r: any) => [r.key, r.value]));
-      const useBetween = (smap.useBetweenShift ?? smap.useBetween) ? ((smap.useBetweenShift ?? smap.useBetween) === 'true') : false;
       let nextYear = year;
       let nextMonth = month + 1;
       if (nextMonth > 12) { nextMonth = 1; nextYear += 1; }
-      nextGen = await generateSchedule({ year: nextYear, month: nextMonth, useBetween, invertFirstWeek: true });
+      nextGen = await generateSchedule({ year: nextYear, month: nextMonth });
     }
 
     return NextResponse.json({ ok: true, imported: rows.length, year, month, nextGenerated: !!nextGen });
