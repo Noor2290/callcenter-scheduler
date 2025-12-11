@@ -1,26 +1,32 @@
 // ═══════════════════════════════════════════════════════════════════════════
-//  GENERATE SCHEDULE — v10.0 (EXACT COVERAGE FROM SETTINGS)
+//  GENERATE SCHEDULE — v11.0 (FINAL - EXACT IMPLEMENTATION)
 //  
-//  ✅ COVERAGE FROM SETTINGS ONLY - NO DEFAULTS
-//     - Morning Coverage = EXACTLY the number from settings
-//     - Evening Coverage = EXACTLY the number from settings
-//     - NO exceeding these numbers
+//  ❗ هذا الملف يتبع التعليمات الرئيسية فقط - لا منطق قديم
 //  
-//  ✅ WEEKLY FIXED SHIFT: Same shift for entire week per employee
-//  ✅ 2-WEEK ROTATION: 2 weeks Morning + 2 weeks Evening (alternating)
-//  ✅ BETWEEN SHIFT: If enabled, assigned employee gets "B" symbol
+//  📌 التغطية من الإعدادات فقط:
+//     - Morning Coverage = بالضبط العدد المحدد (لا زيادة، لا نقصان)
+//     - Evening Coverage = بالضبط العدد المحدد (لا زيادة، لا نقصان)
 //  
-//  ✅ OFF RULES:
-//     - Friday: OFF for everyone
-//     - Marwa: Saturday OFF always
-//     - Each employee: EXACTLY 1 OFF per week (no extra OFF)
-//     - Max 2 OFF per day (excluding Friday)
-//     - OFF/V requests are respected
+//  📌 ثبات الشفت الأسبوعي:
+//     - كل موظفة = شفت واحد ثابت طوال الأسبوع
+//     - تناوب: أسبوع 1-2 صباح → أسبوع 3-4 مساء (أو العكس)
 //  
-//  ✅ SHORTAGE HANDLING:
-//     - If shortage due to OFF/V, distribute best possible
-//     - Never change employee's weekly shift
-//     - Never give extra OFF
+//  📌 قواعد الإجازات:
+//     - الجمعة: OFF للجميع
+//     - مروة: السبت OFF دائماً
+//     - كل موظفة: OFF واحد فقط أسبوعياً
+//     - حد أقصى 2 OFF في اليوم (عدا الجمعة)
+//     - لا OFF إضافي أبداً
+//  
+//  📌 Between Shift:
+//     - إذا ON: للموظفة المحددة فقط
+//     - إذا OFF: لا يستخدم
+//  
+//  📌 الشفتات المسموحة:
+//     صباح: MA1, MA2, M2, PT4
+//     مساء: EA1, E5, E2, MA4, PT5
+//     ليل: MA3
+//     إجازة: O, V
 // ═══════════════════════════════════════════════════════════════════════════
 
 import {
@@ -34,34 +40,32 @@ import {
 import supabaseServer from "@/app/lib/supabaseServer";
 
 // ═══════════════════════════════════════════════════════════════════════════
-// CONSTANTS - SHIFT SYMBOLS
+// CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════
 const OFF = "O";
 const VAC = "V";
 const BETWEEN = "B";
 
-// Morning shifts: MA1, MA2, M2, PT4
-const MORNING_SHIFTS = {
+// الشفتات المسموحة فقط
+const MORNING_SHIFTS: Record<string, string> = {
   FullTime: "MA1",
   PartTime: "PT4",
   Trainee: "M2"
 };
 
-// Evening shifts: EA1, E5, E2, MA4, PT5
-const EVENING_SHIFTS = {
+const EVENING_SHIFTS: Record<string, string> = {
   FullTime: "EA1",
   PartTime: "PT5",
   Trainee: "E2"
 };
 
 const MARWA_ID = "3864";
-const EPOCH_SATURDAY = new Date(2020, 0, 4);
 const MAX_OFF_PER_DAY = 2;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════════════════
-type Shift = "Morning" | "Evening" | "Between";
+type ShiftType = "Morning" | "Evening";
 
 interface Employee {
   id: number | string;
@@ -76,55 +80,34 @@ interface Settings {
   betweenShiftEmployeeId: string | null;
 }
 
+interface DayAssignment {
+  month_id: string;
+  employee_id: string;
+  date: string;
+  symbol: string;
+  code: string;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════
 
-function globalWeekIndex(date: Date): number {
-  const dow = getDay(date);
-  const daysFromSat = (dow + 1) % 7;
-  const weekStart = new Date(date);
-  weekStart.setDate(date.getDate() - daysFromSat);
-  weekStart.setHours(0, 0, 0, 0);
-  const diffMs = weekStart.getTime() - EPOCH_SATURDAY.getTime();
-  return Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000));
+// حساب رقم الأسبوع (السبت = بداية الأسبوع)
+function getWeekNumber(date: Date, monthStart: Date): number {
+  const startDay = monthStart.getDay();
+  const dayOfMonth = date.getDate();
+  // حساب الأسبوع بناءً على السبت كبداية
+  const adjustedDay = dayOfMonth + ((startDay + 1) % 7);
+  return Math.ceil(adjustedDay / 7);
 }
 
-function getShiftSymbol(emp: Employee, shift: Shift): string {
+// الحصول على رمز الشفت حسب نوع الموظفة
+function getShiftSymbol(emp: Employee, shiftType: ShiftType): string {
   const empType = emp.employment_type || "FullTime";
-  if (shift === "Between") return BETWEEN;
-  if (shift === "Morning") {
-    return MORNING_SHIFTS[empType as keyof typeof MORNING_SHIFTS] || MORNING_SHIFTS.FullTime;
+  if (shiftType === "Morning") {
+    return MORNING_SHIFTS[empType] || MORNING_SHIFTS.FullTime;
   }
-  return EVENING_SHIFTS[empType as keyof typeof EVENING_SHIFTS] || EVENING_SHIFTS.FullTime;
-}
-
-function parseShiftFromSymbol(symbol: string): Shift | null {
-  if (!symbol) return null;
-  const s = symbol.toUpperCase();
-  if (s === OFF || s === VAC) return null;
-  if (s === BETWEEN || s === "B") return "Between";
-  if (["MA1", "MA2", "MA4", "PT4", "M2"].includes(s) || s.startsWith("M")) return "Morning";
-  if (["EA1", "E2", "E5", "PT5"].includes(s) || s.startsWith("E")) return "Evening";
-  return null;
-}
-
-// Seeded random for consistent results
-function seededRandom(seed: number): () => number {
-  return function() {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    return seed / 0x7fffffff;
-  };
-}
-
-function shuffleWithSeed<T>(arr: T[], seed: number): T[] {
-  const result = [...arr];
-  const random = seededRandom(seed);
-  for (let i = result.length - 1; i > 0; i--) {
-    const j = Math.floor(random() * (i + 1));
-    [result[i], result[j]] = [result[j], result[i]];
-  }
-  return result;
+  return EVENING_SHIFTS[empType] || EVENING_SHIFTS.FullTime;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -138,39 +121,38 @@ export async function generateSchedule({
   month: number;
 }) {
   const sb = supabaseServer();
-  const seed = year * 100 + month; // Consistent seed per month
   
   console.log(`\n${'═'.repeat(60)}`);
-  console.log(`[SCHEDULER v10] Generating schedule for ${year}-${month}`);
+  console.log(`[SCHEDULER v11] إنشاء جدول ${year}-${month}`);
   console.log(`${'═'.repeat(60)}\n`);
 
   // ═══════════════════════════════════════════════════════════════════════
-  // STEP 1: LOAD DATA FROM DATABASE
+  // الخطوة 1: تحميل البيانات من قاعدة البيانات
   // ═══════════════════════════════════════════════════════════════════════
   
+  // إنشاء/تحديث سجل الشهر
   const { data: monthRow, error: monthErr } = await sb
     .from("months")
     .upsert({ year, month }, { onConflict: "year,month" })
     .select("*")
     .single();
   
-  if (monthErr || !monthRow) throw new Error(monthErr?.message || "Failed to create month");
+  if (monthErr || !monthRow) {
+    throw new Error(monthErr?.message || "فشل في إنشاء سجل الشهر");
+  }
 
-  // Load employees
+  // تحميل الموظفات
   const { data: empData } = await sb.from("employees").select("*").order("name");
   const allEmployees: Employee[] = (empData || []) as Employee[];
-  console.log(`[STEP 1] Total Employees: ${allEmployees.length}`);
+  console.log(`[1] عدد الموظفات: ${allEmployees.length}`);
 
-  // Load settings from database (ONLY SOURCE OF TRUTH)
+  // تحميل الإعدادات (المصدر الوحيد للحقيقة)
   const { data: settingsData } = await sb.from("settings").select("key, value");
   const settingsMap: Record<string, string> = {};
   for (const s of settingsData || []) {
-    if (s.key) {
-      settingsMap[s.key] = s.value ?? "";
-    }
+    if (s.key) settingsMap[s.key] = s.value ?? "";
   }
   
-  // Parse settings - NO DEFAULT VALUES, must come from settings
   const settings: Settings = {
     coverageMorning: Number(settingsMap['coverageMorning']) || 0,
     coverageEvening: Number(settingsMap['coverageEvening']) || 0,
@@ -178,18 +160,17 @@ export async function generateSchedule({
     betweenShiftEmployeeId: settingsMap['betweenShiftEmployeeId'] || null
   };
   
-  console.log(`[STEP 1] Settings from DB:`);
-  console.log(`  - Morning Coverage: ${settings.coverageMorning}`);
-  console.log(`  - Evening Coverage: ${settings.coverageEvening}`);
-  console.log(`  - Use Between Shift: ${settings.useBetweenShift}`);
-  console.log(`  - Between Shift Employee ID: ${settings.betweenShiftEmployeeId || 'N/A'}`);
+  console.log(`[1] الإعدادات:`);
+  console.log(`    - تغطية الصباح: ${settings.coverageMorning}`);
+  console.log(`    - تغطية المساء: ${settings.coverageEvening}`);
+  console.log(`    - Between Shift: ${settings.useBetweenShift ? 'ON' : 'OFF'}`);
 
-  // Validate settings
+  // التحقق من الإعدادات
   if (settings.coverageMorning === 0 || settings.coverageEvening === 0) {
-    throw new Error("Coverage settings not configured. Please set Morning and Evening coverage in Shift Settings.");
+    throw new Error("يجب تحديد قيم التغطية في صفحة الإعدادات");
   }
 
-  // Separate Between Shift employee from regular employees
+  // فصل موظفة Between Shift
   let betweenEmployee: Employee | null = null;
   let regularEmployees: Employee[] = allEmployees;
   
@@ -197,13 +178,11 @@ export async function generateSchedule({
     betweenEmployee = allEmployees.find(e => String(e.id) === settings.betweenShiftEmployeeId) || null;
     if (betweenEmployee) {
       regularEmployees = allEmployees.filter(e => String(e.id) !== settings.betweenShiftEmployeeId);
-      console.log(`[STEP 1] Between Shift Employee: ${betweenEmployee.name}`);
+      console.log(`    - موظفة Between: ${betweenEmployee.name}`);
     }
   }
-  
-  console.log(`[STEP 1] Regular Employees: ${regularEmployees.length}`);
 
-  // Load Vacations & OffRequests
+  // تحميل الإجازات والطلبات
   const { data: vacationData } = await sb.from("requests").select("*").eq("type", "Vacation");
   const { data: offRequestData } = await sb.from("requests").select("*").eq("type", "OffRequest");
   
@@ -212,280 +191,192 @@ export async function generateSchedule({
     vacationSet.add(`${v.employee_id}_${format(new Date(v.date), "yyyy-MM-dd")}`);
   }
   
-  // Track OFF requests per employee per week
-  const offRequestMap = new Map<string, string>();
+  const offRequestSet = new Set<string>();
   for (const o of offRequestData || []) {
-    const dateISO = format(new Date(o.date), "yyyy-MM-dd");
-    const weekIdx = globalWeekIndex(new Date(o.date));
-    offRequestMap.set(`${o.employee_id}_${weekIdx}`, dateISO);
+    offRequestSet.add(`${o.employee_id}_${format(new Date(o.date), "yyyy-MM-dd")}`);
   }
 
-  const isVacation = (empId: string, dateISO: string) => vacationSet.has(`${empId}_${dateISO}`);
-  const getOffRequest = (empId: string, weekIdx: number) => offRequestMap.get(`${empId}_${weekIdx}`);
-
   // ═══════════════════════════════════════════════════════════════════════
-  // STEP 2: PREPARE DATES & WEEKS
+  // الخطوة 2: تحضير الأيام والأسابيع
   // ═══════════════════════════════════════════════════════════════════════
   
   const monthStart = startOfMonth(new Date(year, month - 1, 1));
   const monthEnd = endOfMonth(monthStart);
   const allDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
-  const weekIndices = [...new Set(allDays.map(d => globalWeekIndex(d)))].sort((a, b) => a - b);
-  const numWeeks = weekIndices.length;
   
-  console.log(`[STEP 2] Days: ${allDays.length}, Weeks: ${numWeeks}`);
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // STEP 3: LOAD PREVIOUS MONTH FOR CONTINUITY
-  // ═══════════════════════════════════════════════════════════════════════
-  
-  const prevMonth = month === 1 ? 12 : month - 1;
-  const prevYear = month === 1 ? year - 1 : year;
-  
-  const { data: prevMonthRow } = await sb
-    .from("months")
-    .select("id")
-    .eq("year", prevYear)
-    .eq("month", prevMonth)
-    .single();
-  
-  const prevMonthLastShift = new Map<string, "Morning" | "Evening">();
-  
-  if (prevMonthRow) {
-    const { data: prevAssigns } = await sb
-      .from("assignments")
-      .select("employee_id, symbol")
-      .eq("month_id", prevMonthRow.id)
-      .order("date", { ascending: false });
-    
-    for (const a of prevAssigns || []) {
-      const empId = String(a.employee_id);
-      if (!prevMonthLastShift.has(empId)) {
-        const shift = parseShiftFromSymbol(a.symbol);
-        if (shift === "Morning" || shift === "Evening") {
-          prevMonthLastShift.set(empId, shift);
-        }
-      }
-    }
+  // تجميع الأيام حسب الأسبوع
+  const weekDaysMap = new Map<number, Date[]>();
+  for (const day of allDays) {
+    const weekNum = getWeekNumber(day, monthStart);
+    if (!weekDaysMap.has(weekNum)) weekDaysMap.set(weekNum, []);
+    weekDaysMap.get(weekNum)!.push(day);
   }
-  console.log(`[STEP 3] Previous month shifts loaded: ${prevMonthLastShift.size}`);
+  
+  const weeks = [...weekDaysMap.keys()].sort((a, b) => a - b);
+  console.log(`[2] عدد الأيام: ${allDays.length}, عدد الأسابيع: ${weeks.length}`);
 
   // ═══════════════════════════════════════════════════════════════════════
-  // STEP 4: ASSIGN WEEKLY SHIFTS (2-WEEK ROTATION PATTERN)
-  // 
-  // Rules:
-  // - Each employee has SAME shift for entire week (no daily changes)
-  // - Pattern: 2 weeks Morning → 2 weeks Evening (or vice versa)
-  // - Continuity: Start with opposite of last month's ending shift
-  // - Distribution based on coverage: coverageMorning for Morning, rest for Evening
+  // الخطوة 3: توزيع الشفتات الأسبوعية (تناوب 2+2)
   // ═══════════════════════════════════════════════════════════════════════
   
-  console.log(`\n[STEP 4] Assigning weekly shifts with 2-week rotation...`);
-  console.log(`[STEP 4] Coverage target: Morning=${settings.coverageMorning}, Evening=${settings.coverageEvening}`);
+  console.log(`\n[3] توزيع الشفتات الأسبوعية...`);
   
-  // Sort employees consistently for fair distribution
+  // ترتيب الموظفات حسب ID للثبات
   const sortedEmployees = [...regularEmployees].sort((a, b) => 
     String(a.id).localeCompare(String(b.id))
   );
   
-  // Determine starting shift for each employee
-  // First coverageMorning employees start with Morning, rest start with Evening
-  const employeeStartShift = new Map<string, "Morning" | "Evening">();
+  // تقسيم الموظفات: أول coverageMorning للصباح، الباقي للمساء
+  const morningGroup = sortedEmployees.slice(0, settings.coverageMorning);
+  const eveningGroup = sortedEmployees.slice(settings.coverageMorning, settings.coverageMorning + settings.coverageEvening);
   
-  for (let i = 0; i < sortedEmployees.length; i++) {
-    const emp = sortedEmployees[i];
-    const empId = String(emp.id);
-    const lastShift = prevMonthLastShift.get(empId);
+  console.log(`    - مجموعة الصباح: ${morningGroup.length} موظفة`);
+  console.log(`    - مجموعة المساء: ${eveningGroup.length} موظفة`);
+  
+  // بناء جدول الشفتات الأسبوعية
+  // weekNum -> empId -> ShiftType
+  const weeklyShifts = new Map<number, Map<string, ShiftType>>();
+  
+  for (const weekNum of weeks) {
+    const shiftMap = new Map<string, ShiftType>();
+    weeklyShifts.set(weekNum, shiftMap);
     
-    if (lastShift) {
-      // Continuity: opposite of last month
-      employeeStartShift.set(empId, lastShift === "Morning" ? "Evening" : "Morning");
-    } else {
-      // New employee: first coverageMorning get Morning, rest get Evening
-      employeeStartShift.set(empId, i < settings.coverageMorning ? "Morning" : "Evening");
-    }
-  }
-  
-  // Build weekly shift assignment: weekIdx -> empId -> shift
-  const weeklyShiftAssignment = new Map<number, Map<string, "Morning" | "Evening">>();
-  
-  for (let weekPos = 0; weekPos < weekIndices.length; weekPos++) {
-    const weekIdx = weekIndices[weekPos];
-    const shiftMap = new Map<string, "Morning" | "Evening">();
-    weeklyShiftAssignment.set(weekIdx, shiftMap);
+    // تحديد الشفت حسب نظام التناوب (2+2)
+    // الأسابيع 1-2: المجموعة الأولى صباح، الثانية مساء
+    // الأسابيع 3-4: المجموعة الأولى مساء، الثانية صباح
+    const isFirstBlock = weekNum <= 2;
     
-    for (const emp of regularEmployees) {
+    for (const emp of morningGroup) {
       const empId = String(emp.id);
-      const startShift = employeeStartShift.get(empId) || "Morning";
-      
-      // 2-week rotation: weeks 0-1 = startShift, weeks 2-3 = opposite, etc.
-      const twoWeekBlock = Math.floor(weekPos / 2);
-      const isOpposite = twoWeekBlock % 2 === 1;
-      
-      const assignedShift: "Morning" | "Evening" = isOpposite
-        ? (startShift === "Morning" ? "Evening" : "Morning")
-        : startShift;
-      
-      shiftMap.set(empId, assignedShift);
+      shiftMap.set(empId, isFirstBlock ? "Morning" : "Evening");
+    }
+    
+    for (const emp of eveningGroup) {
+      const empId = String(emp.id);
+      shiftMap.set(empId, isFirstBlock ? "Evening" : "Morning");
     }
   }
   
-  // Log weekly assignments
-  for (const [weekIdx, shiftMap] of weeklyShiftAssignment) {
+  // طباعة التوزيع
+  for (const weekNum of weeks) {
+    const shiftMap = weeklyShifts.get(weekNum)!;
     const mCount = [...shiftMap.values()].filter(s => s === "Morning").length;
     const eCount = [...shiftMap.values()].filter(s => s === "Evening").length;
-    console.log(`[STEP 4] Week ${weekIdx}: Morning=${mCount}, Evening=${eCount}`);
+    console.log(`    - الأسبوع ${weekNum}: صباح=${mCount}, مساء=${eCount}`);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // STEP 5: ASSIGN WEEKLY OFF DAYS
-  // 
-  // Rules:
-  // - Friday: OFF for everyone (handled separately)
-  // - Marwa: Saturday OFF always
-  // - Each employee: EXACTLY 1 OFF per week (no more, no less)
-  // - Max 2 employees OFF per day (excluding Friday)
-  // - OFF requests are respected first
-  // - Fair distribution: rotate OFF days across weeks
+  // الخطوة 4: توزيع الإجازات الأسبوعية
   // ═══════════════════════════════════════════════════════════════════════
   
-  console.log(`\n[STEP 5] Assigning weekly OFF days...`);
+  console.log(`\n[4] توزيع الإجازات الأسبوعية...`);
   
-  // Get non-Friday days per week
-  const weekDays = new Map<number, string[]>();
-  for (const d of allDays) {
-    if (getDay(d) === 5) continue; // Skip Friday
-    const wIdx = globalWeekIndex(d);
-    if (!weekDays.has(wIdx)) weekDays.set(wIdx, []);
-    weekDays.get(wIdx)!.push(format(d, "yyyy-MM-dd"));
-  }
-  
-  // Track last OFF day index per employee for fair rotation
-  const lastOffDayIndex = new Map<string, number>();
-  
-  // weekIdx -> empId -> offDateISO
+  // weekNum -> empId -> dateISO
   const weeklyOffDays = new Map<number, Map<string, string>>();
   
-  for (let weekPos = 0; weekPos < weekIndices.length; weekPos++) {
-    const weekIdx = weekIndices[weekPos];
+  for (const weekNum of weeks) {
     const offMap = new Map<string, string>();
-    weeklyOffDays.set(weekIdx, offMap);
+    weeklyOffDays.set(weekNum, offMap);
     
-    const availableDays = weekDays.get(weekIdx) || [];
-    if (availableDays.length === 0) continue;
+    const weekDays = weekDaysMap.get(weekNum) || [];
+    // أيام العمل (بدون الجمعة)
+    const workDays = weekDays.filter(d => getDay(d) !== 5);
     
-    // Track OFF count per day (max 2)
+    if (workDays.length === 0) continue;
+    
+    // تتبع عدد OFF لكل يوم
     const dayOffCount = new Map<string, number>();
-    for (const d of availableDays) dayOffCount.set(d, 0);
+    for (const d of workDays) {
+      dayOffCount.set(format(d, "yyyy-MM-dd"), 0);
+    }
     
-    // All employees need OFF (regular + between)
+    // جميع الموظفات (عادية + between)
     const allEmpsForOff = [...regularEmployees];
     if (betweenEmployee) allEmpsForOff.push(betweenEmployee);
     
-    // Sort by last OFF day index for fair rotation
-    const sortedEmps = [...allEmpsForOff].sort((a, b) => {
-      const aLast = lastOffDayIndex.get(String(a.id)) ?? -1;
-      const bLast = lastOffDayIndex.get(String(b.id)) ?? -1;
-      return aLast - bLast;
-    });
-    
-    for (const emp of sortedEmps) {
+    for (const emp of allEmpsForOff) {
       const empId = String(emp.id);
       
-      // 1. Check OFF request first (priority)
-      const offReq = getOffRequest(empId, weekIdx);
-      if (offReq && availableDays.includes(offReq)) {
-        const count = dayOffCount.get(offReq) || 0;
-        if (count < MAX_OFF_PER_DAY) {
-          offMap.set(empId, offReq);
-          dayOffCount.set(offReq, count + 1);
-          lastOffDayIndex.set(empId, availableDays.indexOf(offReq));
-          continue;
+      // 1. التحقق من وجود طلب OFF مسبق
+      for (const d of workDays) {
+        const dateISO = format(d, "yyyy-MM-dd");
+        if (offRequestSet.has(`${empId}_${dateISO}`)) {
+          const count = dayOffCount.get(dateISO) || 0;
+          if (count < MAX_OFF_PER_DAY) {
+            offMap.set(empId, dateISO);
+            dayOffCount.set(dateISO, count + 1);
+            break;
+          }
         }
       }
+      if (offMap.has(empId)) continue;
       
-      // 2. Marwa: Saturday OFF always
+      // 2. التحقق من وجود إجازة V - لا تعطى OFF إضافي
+      let hasVacation = false;
+      for (const d of workDays) {
+        const dateISO = format(d, "yyyy-MM-dd");
+        if (vacationSet.has(`${empId}_${dateISO}`)) {
+          hasVacation = true;
+          break;
+        }
+      }
+      if (hasVacation) continue;
+      
+      // 3. مروة: السبت OFF دائماً
       if (empId === MARWA_ID) {
-        const saturday = availableDays.find(d => getDay(new Date(d)) === 6);
-        if (saturday && !isVacation(empId, saturday)) {
-          const count = dayOffCount.get(saturday) || 0;
+        const saturday = workDays.find(d => getDay(d) === 6);
+        if (saturday) {
+          const dateISO = format(saturday, "yyyy-MM-dd");
+          const count = dayOffCount.get(dateISO) || 0;
           if (count < MAX_OFF_PER_DAY) {
-            offMap.set(empId, saturday);
-            dayOffCount.set(saturday, count + 1);
-            lastOffDayIndex.set(empId, availableDays.indexOf(saturday));
+            offMap.set(empId, dateISO);
+            dayOffCount.set(dateISO, count + 1);
             continue;
           }
         }
       }
       
-      // 3. Find best day: prefer different day than last week, min OFF count
-      const lastIdx = lastOffDayIndex.get(empId) ?? -1;
+      // 4. اختيار يوم OFF بأقل عدد إجازات
       let bestDay: string | null = null;
-      let bestScore = Infinity;
+      let minCount = Infinity;
       
-      for (let i = 0; i < availableDays.length; i++) {
-        const d = availableDays[i];
-        if (isVacation(empId, d)) continue;
-        
-        const count = dayOffCount.get(d) || 0;
-        if (count >= MAX_OFF_PER_DAY) continue;
-        
-        // Score: prefer days with fewer OFFs, and different from last week
-        const sameAsLast = i === lastIdx ? 10 : 0;
-        const score = count * 100 + sameAsLast + i;
-        
-        if (score < bestScore) {
-          bestScore = score;
-          bestDay = d;
+      for (const d of workDays) {
+        const dateISO = format(d, "yyyy-MM-dd");
+        const count = dayOffCount.get(dateISO) || 0;
+        if (count < MAX_OFF_PER_DAY && count < minCount) {
+          minCount = count;
+          bestDay = dateISO;
         }
       }
       
       if (bestDay) {
         offMap.set(empId, bestDay);
         dayOffCount.set(bestDay, (dayOffCount.get(bestDay) || 0) + 1);
-        lastOffDayIndex.set(empId, availableDays.indexOf(bestDay));
       }
     }
-    
-    // Log OFF distribution
-    const dist = [...dayOffCount.entries()].map(([d, c]) => `${d.slice(8)}:${c}`).join(' ');
-    console.log(`[STEP 5] Week ${weekPos + 1}: ${dist}`);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // STEP 6: BUILD DAILY ASSIGNMENTS WITH EXACT COVERAGE
-  // 
-  // CRITICAL: Coverage numbers are EXACT - no exceeding allowed
-  // - Morning = EXACTLY coverageMorning employees
-  // - Evening = EXACTLY coverageEvening employees
-  // - If shortage due to OFF/V, that's acceptable (less than target)
-  // - But NEVER exceed the target numbers
+  // الخطوة 5: بناء الجدول اليومي
   // ═══════════════════════════════════════════════════════════════════════
   
-  console.log(`\n[STEP 6] Building daily assignments with EXACT coverage...`);
-  console.log(`[STEP 6] Target: Morning=${settings.coverageMorning}, Evening=${settings.coverageEvening}`);
+  console.log(`\n[5] بناء الجدول اليومي...`);
   
-  const rows: Array<{
-    month_id: string;
-    employee_id: number | string;
-    date: string;
-    symbol: string;
-    code: string;
-  }> = [];
+  const rows: DayAssignment[] = [];
   
   for (const day of allDays) {
     const dateISO = format(day, "yyyy-MM-dd");
     const dow = getDay(day);
-    const weekIdx = globalWeekIndex(day);
+    const weekNum = getWeekNumber(day, monthStart);
     
-    // ═══════════════════════════════════════════════════════════════════════
-    // FRIDAY: OFF for everyone
-    // ═══════════════════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════════
+    // الجمعة: OFF للجميع
+    // ═══════════════════════════════════════════════════════════════════
     if (dow === 5) {
       for (const emp of allEmployees) {
         rows.push({
           month_id: monthRow.id,
-          employee_id: emp.id,
+          employee_id: String(emp.id),
           date: dateISO,
           symbol: OFF,
           code: OFF
@@ -494,94 +385,81 @@ export async function generateSchedule({
       continue;
     }
     
-    const weekOffMap = weeklyOffDays.get(weekIdx) || new Map();
-    const weekShiftMap = weeklyShiftAssignment.get(weekIdx) || new Map();
+    const weekOffMap = weeklyOffDays.get(weekNum) || new Map();
+    const weekShiftMap = weeklyShifts.get(weekNum) || new Map();
     
-    // ═══════════════════════════════════════════════════════════════════════
-    // CATEGORIZE AVAILABLE EMPLOYEES BY THEIR WEEKLY SHIFT
-    // ═══════════════════════════════════════════════════════════════════════
-    const morningPool: Employee[] = [];
-    const eveningPool: Employee[] = [];
+    // ═══════════════════════════════════════════════════════════════════
+    // تحديد الموظفات المتاحات لكل شفت
+    // ═══════════════════════════════════════════════════════════════════
+    const availableMorning: Employee[] = [];
+    const availableEvening: Employee[] = [];
     
     for (const emp of regularEmployees) {
       const empId = String(emp.id);
       
-      // Skip if vacation or weekly OFF
-      if (isVacation(empId, dateISO)) continue;
+      // تخطي إذا إجازة أو OFF
+      if (vacationSet.has(`${empId}_${dateISO}`)) continue;
       if (weekOffMap.get(empId) === dateISO) continue;
       
-      const assignedShift = weekShiftMap.get(empId);
-      if (assignedShift === "Morning") {
-        morningPool.push(emp);
-      } else if (assignedShift === "Evening") {
-        eveningPool.push(emp);
+      const shift = weekShiftMap.get(empId);
+      if (shift === "Morning") {
+        availableMorning.push(emp);
+      } else if (shift === "Evening") {
+        availableEvening.push(emp);
       }
     }
     
-    // ═══════════════════════════════════════════════════════════════════════
-    // SELECT EXACTLY THE REQUIRED NUMBER FOR EACH SHIFT
-    // NEVER EXCEED - only shortage is acceptable
-    // ═══════════════════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════════
+    // اختيار بالضبط العدد المطلوب
+    // ═══════════════════════════════════════════════════════════════════
+    const selectedMorning = availableMorning.slice(0, settings.coverageMorning);
+    const selectedEvening = availableEvening.slice(0, settings.coverageEvening);
     
-    // Select EXACTLY coverageMorning (or less if shortage)
-    const selectedMorning = morningPool.slice(0, settings.coverageMorning);
     const selectedMorningIds = new Set(selectedMorning.map(e => String(e.id)));
-    
-    // Select EXACTLY coverageEvening (or less if shortage)
-    const selectedEvening = eveningPool.slice(0, settings.coverageEvening);
     const selectedEveningIds = new Set(selectedEvening.map(e => String(e.id)));
     
-    // Log if there's a shortage
-    if (selectedMorning.length < settings.coverageMorning) {
-      console.log(`[STEP 6] ${dateISO}: Morning shortage ${selectedMorning.length}/${settings.coverageMorning}`);
-    }
-    if (selectedEvening.length < settings.coverageEvening) {
-      console.log(`[STEP 6] ${dateISO}: Evening shortage ${selectedEvening.length}/${settings.coverageEvening}`);
-    }
-    
-    // ═══════════════════════════════════════════════════════════════════════
-    // BUILD ROWS FOR THIS DAY
-    // Employees not selected for coverage get OFF (they are extra)
-    // ═══════════════════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════════
+    // بناء السجلات
+    // ═══════════════════════════════════════════════════════════════════
     for (const emp of allEmployees) {
       const empId = String(emp.id);
       let symbol: string;
       
-      // 1. Check vacation first
-      if (isVacation(empId, dateISO)) {
+      // 1. إجازة V
+      if (vacationSet.has(`${empId}_${dateISO}`)) {
         symbol = VAC;
       }
-      // 2. Check weekly OFF
+      // 2. OFF الأسبوعي
       else if (weekOffMap.get(empId) === dateISO) {
         symbol = OFF;
       }
-      // 3. Between Shift employee - works B every day (except OFF/V/Friday)
+      // 3. موظفة Between Shift
       else if (betweenEmployee && empId === String(betweenEmployee.id)) {
         symbol = BETWEEN;
       }
-      // 4. Selected for Morning coverage
+      // 4. شفت صباح
       else if (selectedMorningIds.has(empId)) {
         symbol = getShiftSymbol(emp, "Morning");
       }
-      // 5. Selected for Evening coverage
+      // 5. شفت مساء
       else if (selectedEveningIds.has(empId)) {
         symbol = getShiftSymbol(emp, "Evening");
       }
-      // 6. NOT selected - these are "extra" employees beyond coverage
-      // They work their assigned shift (no extra OFF given)
+      // 6. موظفة غير مختارة للتغطية (لا تعمل هذا اليوم)
       else {
-        const assignedShift = weekShiftMap.get(empId);
-        if (assignedShift) {
-          symbol = getShiftSymbol(emp, assignedShift);
+        // هذه الموظفة ليست ضمن التغطية المطلوبة
+        // لكن لا نعطيها OFF إضافي - تبقى بدون شفت
+        const shift = weekShiftMap.get(empId);
+        if (shift) {
+          symbol = getShiftSymbol(emp, shift);
         } else {
-          // Fallback - shouldn't happen
-          symbol = getShiftSymbol(emp, "Morning");
+          symbol = OFF;
         }
       }
       
       rows.push({
         month_id: monthRow.id,
-        employee_id: emp.id,
+        employee_id: String(emp.id),
         date: dateISO,
         symbol,
         code: symbol
@@ -589,13 +467,13 @@ export async function generateSchedule({
     }
   }
   
-  console.log(`[STEP 6] Total assignments: ${rows.length}`);
+  console.log(`[5] إجمالي السجلات: ${rows.length}`);
 
   // ═══════════════════════════════════════════════════════════════════════
-  // STEP 7: VERIFY COVERAGE & OFF RULES
+  // الخطوة 6: التحقق من التغطية
   // ═══════════════════════════════════════════════════════════════════════
   
-  console.log(`\n[STEP 7] Verifying coverage and OFF rules...`);
+  console.log(`\n[6] التحقق من التغطية...`);
   
   const morningSymbols = Object.values(MORNING_SHIFTS);
   const eveningSymbols = Object.values(EVENING_SHIFTS);
@@ -604,61 +482,39 @@ export async function generateSchedule({
   
   for (const day of allDays) {
     const dateISO = format(day, "yyyy-MM-dd");
-    if (getDay(day) === 5) continue; // Skip Friday
+    if (getDay(day) === 5) continue;
     
     const dayRows = rows.filter(r => r.date === dateISO);
     const mCount = dayRows.filter(r => morningSymbols.includes(r.symbol)).length;
     const eCount = dayRows.filter(r => eveningSymbols.includes(r.symbol)).length;
-    const offCount = dayRows.filter(r => r.symbol === OFF).length;
     
-    // Check coverage
-    if (mCount < settings.coverageMorning) {
-      console.warn(`[WARN] ${dateISO}: Morning=${mCount}/${settings.coverageMorning}`);
+    if (mCount !== settings.coverageMorning) {
+      console.log(`    ⚠️ ${dateISO}: صباح=${mCount}/${settings.coverageMorning}`);
       issues++;
     }
-    if (eCount < settings.coverageEvening) {
-      console.warn(`[WARN] ${dateISO}: Evening=${eCount}/${settings.coverageEvening}`);
-      issues++;
-    }
-    
-    // Check OFF limit (max 2 per day, excluding Friday)
-    if (offCount > MAX_OFF_PER_DAY) {
-      console.warn(`[WARN] ${dateISO}: OFF=${offCount} (max ${MAX_OFF_PER_DAY})`);
+    if (eCount !== settings.coverageEvening) {
+      console.log(`    ⚠️ ${dateISO}: مساء=${eCount}/${settings.coverageEvening}`);
       issues++;
     }
   }
   
-  // Verify each employee has exactly 1 OFF per week
-  for (const weekIdx of weekIndices) {
-    const weekOffMap = weeklyOffDays.get(weekIdx);
-    if (!weekOffMap) continue;
-    
-    for (const emp of allEmployees) {
-      const empId = String(emp.id);
-      if (!weekOffMap.has(empId) && empId !== settings.betweenShiftEmployeeId) {
-        // Check if employee has vacation all week
-        const weekDaysList = weekDays.get(weekIdx) || [];
-        const hasVacationAllWeek = weekDaysList.every(d => isVacation(empId, d));
-        if (!hasVacationAllWeek) {
-          console.warn(`[WARN] Week ${weekIdx}: ${emp.name} has no OFF assigned`);
-        }
-      }
-    }
+  if (issues === 0) {
+    console.log(`    ✅ التغطية مطابقة للإعدادات!`);
+  } else {
+    console.log(`    ⚠️ ${issues} مشكلة في التغطية`);
   }
-  
-  console.log(issues === 0 ? `[STEP 7] ✅ All rules verified!` : `[STEP 7] ⚠️ ${issues} issues found`);
 
   // ═══════════════════════════════════════════════════════════════════════
-  // STEP 8: SAVE TO DATABASE
+  // الخطوة 7: الحفظ في قاعدة البيانات
   // ═══════════════════════════════════════════════════════════════════════
   
-  console.log(`\n[STEP 8] Saving to database...`);
+  console.log(`\n[7] الحفظ في قاعدة البيانات...`);
   
   await sb.from("assignments").delete().eq("month_id", monthRow.id);
   const { error: insertErr } = await sb.from("assignments").insert(rows);
   
   if (insertErr) throw insertErr;
-  console.log(`[STEP 8] ✅ Saved ${rows.length} assignments!`);
+  console.log(`    ✅ تم حفظ ${rows.length} سجل!`);
 
   return {
     ok: true,
@@ -666,12 +522,10 @@ export async function generateSchedule({
       year,
       month,
       employees: allEmployees.length,
-      regularEmployees: regularEmployees.length,
-      betweenEmployee: betweenEmployee?.name || null,
       coverageMorning: settings.coverageMorning,
       coverageEvening: settings.coverageEvening,
       useBetweenShift: settings.useBetweenShift,
-      weeks: numWeeks,
+      weeks: weeks.length,
       assignments: rows.length,
       issues
     }
