@@ -452,14 +452,32 @@ export async function generateSchedule({
   console.log(`\n    📊 ملخص التوزيع النهائي:`);
   for (const emp of regularEmployees) {
     const empId = String(emp.id);
-    const weekShifts = empWeeklyShift.get(empId)!;
+    const weekShifts = empWeeklyShift.get(empId);
+    if (!weekShifts) continue; // تخطي إذا لم تكن موجودة
+    
     const pattern = weeks.map(w => weekShifts.get(w) === "Morning" ? "M" : "E").join("-");
     
-    if (empId === TOOQ_ID) {
+    // التحقق إذا كانت Tooq (بالاسم أو ID)
+    const isTooq = empId === TOOQ_ID || emp.name.toLowerCase().includes('tooq');
+    if (isTooq) {
       console.log(`    - ${emp.name}: مسائية دائماً [${pattern}] ⭐`);
     } else {
-      const history = empShiftHistory.get(empId)!;
-      console.log(`    - ${emp.name}: صباح=${history.morning}, مساء=${history.evening} [${pattern}]`);
+      const history = empShiftHistory.get(empId);
+      if (history) {
+        console.log(`    - ${emp.name}: صباح=${history.morning}, مساء=${history.evening} [${pattern}]`);
+      } else {
+        console.log(`    - ${emp.name}: [${pattern}]`);
+      }
+    }
+  }
+  
+  // طباعة Tooq إذا كانت موجودة
+  if (tooqEmployee) {
+    const tooqId = String(tooqEmployee.id);
+    const weekShifts = empWeeklyShift.get(tooqId);
+    if (weekShifts) {
+      const pattern = weeks.map(w => weekShifts.get(w) === "Morning" ? "M" : "E").join("-");
+      console.log(`    - ${tooqEmployee.name}: مسائية دائماً [${pattern}] ⭐`);
     }
   }
   
@@ -467,7 +485,8 @@ export async function generateSchedule({
   const empMorningWeeks = new Map<string, number[]>();
   for (const emp of regularEmployees) {
     const empId = String(emp.id);
-    const weekShifts = empWeeklyShift.get(empId)!;
+    const weekShifts = empWeeklyShift.get(empId);
+    if (!weekShifts) continue;
     const morningWeeks = weeks.filter(w => weekShifts.get(w) === "Morning");
     empMorningWeeks.set(empId, morningWeeks);
   }
