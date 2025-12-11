@@ -21,6 +21,12 @@ type MonthData = {
   };
 };
 
+// الجدول المعروض حالياً (في الذاكرة فقط - لا يُحفظ تلقائياً)
+let currentDisplayedSchedule: {
+  grid: Record<string, Record<string, string>>;
+  seed: number;
+} | null = null;
+
 function toISO(y: number, m: number, d: number) {
   return format(new Date(y, m - 1, d), 'yyyy-MM-dd');
 }
@@ -63,7 +69,7 @@ export default function ScheduleGrid() {
     setGridOriginal(JSON.parse(JSON.stringify(g)));
   }
 
-  // توليد جدول جديد (preview mode)
+  // توليد جدول جديد (preview mode - لا يُحفظ في DB)
   async function generateNewSchedule() {
     if (!settings.year || !settings.month) {
       setMsg('الرجاء تحديد السنة والشهر أولاً');
@@ -74,22 +80,32 @@ export default function ScheduleGrid() {
     setMsg('جاري توليد جدول جديد...');
     
     try {
+      // ✅ seed عشوائي جديد كل مرة = جدول مختلف كل مرة
+      const newSeed = Date.now() + Math.random() * 1000000;
+      
       const res = await fetch('/api/schedule/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           year: settings.year, 
           month: settings.month,
-          preview: true,  // لا يحفظ في DB
-          seed: Date.now()  // seed عشوائي جديد
+          preview: true,  // ❌ لا يحفظ في DB أبداً
+          seed: newSeed
         })
       });
       
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       
+      // ✅ تحديث الجدول المعروض
       updateGridFromData(json);
       setIsPreviewMode(true);
+      
+      // ✅ حفظ الـ seed للاستخدام عند الحفظ
+      currentDisplayedSchedule = {
+        grid: JSON.parse(JSON.stringify(grid)),
+        seed: json.seed || newSeed
+      };
       
       const d = json.debug || {};
       setMsg(`✅ تم توليد جدول جديد (صباح: ${d.coverageMorning}, مساء: ${d.coverageEvening}) - اضغط "حفظ" للاعتماد`);
@@ -116,27 +132,30 @@ export default function ScheduleGrid() {
     });
   }
 
-  // عند فتح الصفحة: توليد جدول جديد تلقائياً (لا يحمّل المحفوظ أبداً)
+  // عند فتح الصفحة: توليد جدول جديد تلقائياً
   useEffect(() => { 
     if (settings.year && settings.month) {
-      // دائماً توليد جدول جديد - لا نحمّل الجدول المحفوظ
       generateNewSchedule();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.year, settings.month]);
 
-  // حفظ الجدول الحالي في DB
-  async function saveScheduleToDb() {
+  // حفظ الجدول المعروض حالياً في DB (بدون تغيير أي شيء في الصفحة)
+  async function saveCurrentScheduleToDb() {
     if (!settings.year || !settings.month) {
       setMsg('الرجاء تحديد السنة والشهر أولاً');
       return;
     }
     
+    if (!data || !currentDisplayedSchedule) {
+      setMsg('❌ لا يوجد جدول للحفظ');
+      return;
+    }
+    
     setIsGenerating(true);
-    setMsg('جاري حفظ الجدول...');
+    setMsg('جاري حفظ الجدول المعروض...');
     
     try {
-      // إعادة توليد مع preview=false للحفظ
+      // حفظ الجدول المعروض حالياً باستخدام نفس الـ seed
       const res = await fetch('/api/schedule/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -144,18 +163,18 @@ export default function ScheduleGrid() {
           year: settings.year, 
           month: settings.month,
           preview: false,  // حفظ في DB
-          seed: data?.seed || Date.now()  // نفس الـ seed للحفاظ على نفس التوزيع
+          seed: currentDisplayedSchedule.seed  // نفس الـ seed بالضبط
         })
       });
       
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       
-      updateGridFromData(json);
+      // ❌ لا نغير الجدول المعروض - فقط نغير الحالة
       setIsPreviewMode(false);
       
       const d = json.debug || {};
-      setMsg(`✅ تم حفظ الجدول! (صباح: ${d.coverageMorning}, مساء: ${d.coverageEvening})`);
+      setMsg(`✅ تم حفظ الجدول الرسمي! (صباح: ${d.coverageMorning}, مساء: ${d.coverageEvening})`);
     } catch (err: any) {
       setMsg('❌ خطأ في الحفظ: ' + (err.message || 'غير معروف'));
     } finally {
@@ -185,8 +204,9 @@ export default function ScheduleGrid() {
         setMsg(json.error || 'فشل الاستيراد');
         return;
       }
-      setMsg('تم الاستيراد بنجاح');
-      loadSavedSchedule();
+      setMsg('✅ تم الاستيراد بنجاح');
+      // ❌ لا نحفظ تلقائياً - فقط نعرض
+      loadSavedSchedule();  // نحمّل ما تم استيراده للعرض فقط
     } catch (e: any) {
       setMsg(e?.message || 'فشل الاستيراد');
     } finally {
@@ -218,8 +238,9 @@ export default function ScheduleGrid() {
       });
       const json = await res.json();
       if (!res.ok) { setMsg(json.error || 'فشل الحفظ'); return; }
-      setMsg('تم الحفظ');
-      loadSavedSchedule();
+      setMsg('✅ تم حفظ التعديلات');
+      // تحديث الـ grid الأصلي بدون إعادة تحميل
+      setGridOriginal(JSON.parse(JSON.stringify(grid)));
     });
   }
 
@@ -282,9 +303,9 @@ export default function ScheduleGrid() {
           )}
         </button>
         
-        {/* زر حفظ الجدول */}
+        {/* زر حفظ الجدول - يحفظ الجدول المعروض فقط */}
         <button 
-          onClick={saveScheduleToDb} 
+          onClick={saveCurrentScheduleToDb} 
           className="px-4 py-2 bg-green-600 text-white rounded disabled:opacity-60" 
           disabled={isPending || isGenerating || !isPreviewMode}
         >
