@@ -170,7 +170,7 @@ export default function ScheduleGrid() {
       return;
     }
     
-    if (!data || !currentDisplayedSchedule) {
+    if (!data || Object.keys(grid).length === 0) {
       setMsg('❌ لا يوجد جدول للحفظ');
       return;
     }
@@ -179,26 +179,40 @@ export default function ScheduleGrid() {
     setMsg('جاري حفظ الجدول المعروض...');
     
     try {
-      // حفظ الجدول المعروض حالياً باستخدام نفس الـ seed
-      const res = await fetch('/api/schedule/generate', {
+      // تحويل الـ grid المعروض إلى قائمة changes
+      const changes: { employee_id: string; date: string; symbol: string }[] = [];
+      for (const empId of Object.keys(grid)) {
+        const row = grid[empId] || {};
+        for (const date of Object.keys(row)) {
+          const symbol = (row[date] || '').toString().toUpperCase();
+          changes.push({ employee_id: empId, date, symbol });
+        }
+      }
+      
+      if (changes.length === 0) {
+        setMsg('❌ لا توجد بيانات للحفظ');
+        return;
+      }
+      
+      // حفظ الجدول المعروض مباشرة
+      const res = await fetch('/api/schedule/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           year: settings.year, 
           month: settings.month,
-          preview: false,  // حفظ في DB
-          seed: currentDisplayedSchedule.seed  // نفس الـ seed بالضبط
+          changes
         })
       });
       
       const json = await res.json();
-      if (json.error) throw new Error(json.error);
+      if (!res.ok || json.error) throw new Error(json.error || 'فشل الحفظ');
       
-      // ❌ لا نغير الجدول المعروض - فقط نغير الحالة
+      // تحديث الحالة
       setIsPreviewMode(false);
+      setGridOriginal(JSON.parse(JSON.stringify(grid)));
       
-      const d = json.debug || {};
-      setMsg(`✅ تم حفظ الجدول الرسمي! (صباح: ${d.coverageMorning}, مساء: ${d.coverageEvening})`);
+      setMsg(`✅ تم حفظ الجدول بنجاح (${changes.length} خلية)`);
     } catch (err: any) {
       setMsg('❌ خطأ في الحفظ: ' + (err.message || 'غير معروف'));
     } finally {
