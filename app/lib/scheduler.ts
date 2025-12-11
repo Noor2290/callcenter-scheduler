@@ -268,17 +268,24 @@ export async function generateSchedule({
     console.log(`    - مروة: ${marwaEmployee.name} (ID: ${marwaId})`);
   }
   
-  // البحث عن Tooq Almaliki (مسائية دائماً) - في جميع الموظفات
+  // البحث عن Tooq Almaliki (مسائية دائماً) - بالـ ID أو الاسم
   const TOOQ_ID = "3979";
-  const tooqEmployee = allEmployees.find(e => String(e.id) === TOOQ_ID);
+  const tooqEmployee = allEmployees.find(e => 
+    String(e.id) === TOOQ_ID || 
+    e.name.toLowerCase().includes('tooq')
+  );
+  const actualTooqId = tooqEmployee ? String(tooqEmployee.id) : null;
   if (tooqEmployee) {
-    console.log(`    - Tooq Almaliki: ${tooqEmployee.name} (ID: ${TOOQ_ID}) - مسائية دائماً`);
+    console.log(`    - Tooq Almaliki: ${tooqEmployee.name} (ID: ${actualTooqId}) - مسائية دائماً`);
   } else {
-    console.log(`    - ⚠️ Tooq Almaliki (ID: ${TOOQ_ID}) غير موجودة!`);
+    console.log(`    - ⚠️ Tooq Almaliki غير موجودة!`);
   }
   
   // الموظفات المشاركات في التناوب (بدون Tooq)
-  const rotatingEmployees = regularEmployees.filter(e => String(e.id) !== TOOQ_ID);
+  const rotatingEmployees = regularEmployees.filter(e => 
+    String(e.id) !== TOOQ_ID && 
+    !e.name.toLowerCase().includes('tooq')
+  );
   
   // ═══════════════════════════════════════════════════════════════════
   // نظام التوزيع الديناميكي بالأولوية
@@ -705,8 +712,8 @@ export async function generateSchedule({
           symbol = BETWEEN;
         }
       }
-      // 2. Tooq Almaliki - مسائية دائماً
-      else if (empId === TOOQ_ID) {
+      // 2. Tooq Almaliki - مسائية دائماً (مقارنة بالاسم أيضاً)
+      else if (empId === TOOQ_ID || emp.name.toLowerCase().includes('tooq')) {
         if (vacationSet.has(`${empId}_${dateISO}`)) {
           symbol = VAC;
         } else if (weekOffMap.get(empId) === dateISO) {
