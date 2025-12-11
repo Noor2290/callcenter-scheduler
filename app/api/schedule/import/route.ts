@@ -85,29 +85,91 @@ export async function POST(req: NextRequest) {
     // Determine month days
     const daysInMonth = new Date(year, month, 0).getDate();
 
-    // Parse grid: rows with name in col1 and code (ID) in col2, then day columns start at 3
-    // ⚠️ استيراد البيانات كما هي بالضبط بدون أي تعديل
-    const rows: { employee_id: string; date: string; symbol: string; code: string }[] = [];
-    for (let r = 1; r <= ws.rowCount; r++) {
+    // ═══════════════════════════════════════════════════════════════════════
+    // البحث عن صف الأيام (DAYS & DATE/NAME) وتحديد بداية البيانات
+    // ═══════════════════════════════════════════════════════════════════════
+    let headerRow = -1;
+    let nameCol = -1;
+    let idCol = -1;
+    let firstDayCol = -1;
+    
+    // البحث عن صف العناوين
+    for (let r = 1; r <= Math.min(ws.rowCount, 20); r++) {
       const row = ws.getRow(r);
-      const nameVal = row.getCell(1).value as any;
-      const codeVal = row.getCell(2).value as any;
+      for (let c = 1; c <= Math.min(ws.columnCount, 10); c++) {
+        const v = String(row.getCell(c).value ?? '').toLowerCase();
+        if (v.includes('name') || v.includes('days') || v.includes('اسم')) {
+          headerRow = r;
+          nameCol = c;
+          // البحث عن عمود ID
+          for (let cc = c + 1; cc <= Math.min(ws.columnCount, 10); cc++) {
+            const vv = String(row.getCell(cc).value ?? '').toLowerCase();
+            if (vv.includes('id') || vv === 'id' || /^\d+$/.test(vv)) {
+              idCol = cc;
+              break;
+            }
+          }
+          break;
+        }
+      }
+      if (headerRow > 0) break;
+    }
+    
+    // إذا لم نجد، نستخدم القيم الافتراضية
+    if (headerRow < 0) headerRow = 7; // الصف 7 عادة يحتوي على NAME
+    if (nameCol < 0) nameCol = 1;
+    if (idCol < 0) idCol = 2;
+    firstDayCol = Math.max(nameCol, idCol) + 1;
+    
+    console.log(`[IMPORT] Header row: ${headerRow}, Name col: ${nameCol}, ID col: ${idCol}, First day col: ${firstDayCol}`);
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // قراءة البيانات من الصفوف
+    // ═══════════════════════════════════════════════════════════════════════
+    const rows: { employee_id: string; date: string; symbol: string; code: string }[] = [];
+    let importedEmployees = 0;
+    
+    for (let r = headerRow + 1; r <= ws.rowCount; r++) {
+      const row = ws.getRow(r);
+      
+      // قراءة الاسم والكود
+      const nameVal = row.getCell(nameCol).value;
+      const codeVal = row.getCell(idCol).value;
+      
+      // تحويل الكود لنص
       const codeStr = typeof codeVal === 'number' ? String(codeVal) : String(codeVal || '').trim();
+      
+      // البحث عن الموظفة بالكود أولاً
       let empId = byCode.get(codeStr);
+      
+      // إذا لم نجد بالكود، نبحث بالاسم
       if (!empId) {
         const nameStr = norm(nameVal);
         if (nameStr) empId = byName.get(nameStr);
       }
-      if (!empId) continue; // skip rows that don't map to an employee
+      
+      // تخطي الصفوف التي لا تطابق موظفة
+      if (!empId) continue;
+      
+      importedEmployees++;
+      
+      // قراءة الشفتات لكل يوم
       for (let d = 1; d <= daysInMonth; d++) {
-        const c = 2 + d;
-        const v = row.getCell(c).value as any;
-        // استيراد القيمة كما هي بالضبط بدون أي تعديل
-        const symbol = (typeof v === 'string' ? v : (typeof v === 'number' ? String(v) : '')).toString().trim().toUpperCase();
+        const c = firstDayCol + d - 1;
+        const cellValue = row.getCell(c).value;
+        
+        // استيراد القيمة كما هي بالضبط
+        let symbol = '';
+        if (cellValue !== null && cellValue !== undefined) {
+          symbol = String(cellValue).trim().toUpperCase();
+        }
+        
         const date = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
         rows.push({ employee_id: empId, date, symbol, code: symbol });
       }
     }
+    
+    console.log(`[IMPORT] Found ${importedEmployees} employees, ${rows.length} assignments`);
 
     // Dedupe rows to avoid duplicate key constraint violation
     const dedupeMap = new Map<string, typeof rows[0]>();
@@ -136,7 +198,14 @@ export async function POST(req: NextRequest) {
       nextGen = await generateSchedule({ year: nextYear, month: nextMonth });
     }
 
-    return NextResponse.json({ ok: true, imported: rows.length, year, month, nextGenerated: !!nextGen });
+    return NextResponse.json({ 
+      ok: true, 
+      imported: uniqueRows.length, 
+      employees: importedEmployees,
+      year, 
+      month, 
+      nextGenerated: !!nextGen 
+    });
   } catch (e: any) {
     return NextResponse.json({ error: e.message ?? 'Import failed' }, { status: 500 });
   }

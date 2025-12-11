@@ -287,7 +287,7 @@ export default function ScheduleGrid() {
       }
       // تحميل الجدول المستورد وعرضه
       loadSavedSchedule();
-      setMsg(`✅ تم استيراد جدول الشهر بنجاح – هذا الجدول يستخدم كأساس لتوليد الشهر التالي.`);
+      setMsg(`✅ تم استيراد جدول الشهر بنجاح (${json.employees} موظفة، ${json.imported} خلية) – هذا الجدول يستخدم كأساس لتوليد الشهر التالي.`);
     } catch (e: any) {
       setMsg('❌ ' + (e?.message || 'فشل الاستيراد'));
     } finally {
