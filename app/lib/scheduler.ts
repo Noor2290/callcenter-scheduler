@@ -7,12 +7,12 @@
 //     - Morning Coverage = بالضبط العدد المحدد (لا زيادة، لا نقصان)
 //     - Evening Coverage = بالضبط العدد المحدد (لا زيادة، لا نقصان)
 //  
-//  📌 نظام طابور الدوران (Rotation Queue):
-//     - طابور يحتوي كل الموظفات بترتيب عشوائي
-//     - كل أسبوع: أول X للصباح، بعدهم Y للمساء
-//     - بعد كل أسبوع: الموظفات اللاتي عملن ينتقلن لنهاية الطابور
-//     - هذا يضمن: أسبوعين صباح + أسبوعين مساء لكل موظفة
-//     - لا يتغير الشفت داخل الأسبوع مهما كانت حالات OFF
+//  📌 نظام التوزيع الفردي (2+2):
+//     - كل موظفة تُحدد أسابيعها بشكل مستقل وعشوائي
+//     - كل موظفة = 2 أسابيع صباح + 2 أسابيع مساء
+//     - الاختيار عشوائي لكل موظفة باستخدام seed
+//     - الشفت ثابت طوال الأسبوع
+//     - التغطية اليومية تُطبق بعد تحديد الشفتات
 //  
 //  📌 قواعد الإجازات:
 //     - الجمعة: OFF للجميع
@@ -269,82 +269,79 @@ export async function generateSchedule({
   }
   
   // ═══════════════════════════════════════════════════════════════════
-  // نظام طابور الدوران (Rotation Queue)
+  // نظام التوزيع الفردي (2+2)
   // ═══════════════════════════════════════════════════════════════════
-  // - طابور يحتوي كل الموظفات بترتيب عشوائي
-  // - كل أسبوع: أول X للصباح، بعدهم Y للمساء
-  // - بعد كل أسبوع: الموظفات اللاتي عملن ينتقلن لنهاية الطابور
-  // - هذا يضمن: أسبوعين صباح + أسبوعين مساء لكل موظفة
+  // - كل موظفة تُحدد أسابيعها بشكل مستقل وعشوائي
+  // - كل موظفة = 2 أسابيع صباح + 2 أسابيع مساء
+  // - الاختيار عشوائي لكل موظفة باستخدام seed مختلف
   // ═══════════════════════════════════════════════════════════════════
   
-  // خلط الموظفات باستخدام seed لتوليد توزيعات مختلفة
-  let rotationQueue = shuffleWithSeed(regularEmployees, actualSeed);
-  
-  console.log(`    - عدد الموظفات في الطابور: ${rotationQueue.length}`);
+  console.log(`    - عدد الموظفات: ${regularEmployees.length}`);
   console.log(`    - التغطية المطلوبة: صباح=${settings.coverageMorning}, مساء=${settings.coverageEvening}`);
   
-  // التحقق من أن عدد الموظفات كافٍ
-  const totalNeeded = settings.coverageMorning + settings.coverageEvening;
-  if (rotationQueue.length < totalNeeded) {
-    console.warn(`    ⚠️ تحذير: عدد الموظفات (${rotationQueue.length}) أقل من المطلوب (${totalNeeded})`);
-  }
+  // جميع التركيبات الممكنة لاختيار 2 أسابيع من 4 للصباح
+  // الأسابيع: 1, 2, 3, 4
+  // التركيبات: [1,2], [1,3], [1,4], [2,3], [2,4], [3,4]
+  const morningWeekCombinations = [
+    [1, 2], // أسبوع 1+2 صباح، 3+4 مساء
+    [1, 3], // أسبوع 1+3 صباح، 2+4 مساء
+    [1, 4], // أسبوع 1+4 صباح، 2+3 مساء
+    [2, 3], // أسبوع 2+3 صباح، 1+4 مساء
+    [2, 4], // أسبوع 2+4 صباح، 1+3 مساء
+    [3, 4], // أسبوع 3+4 صباح، 1+2 مساء
+  ];
   
   // بناء جدول الشفتات الأسبوعية
   // weekNum -> empId -> ShiftType
   const weeklyShifts = new Map<number, Map<string, ShiftType>>();
   
-  // تتبع عدد أسابيع الصباح والمساء لكل موظفة (للتحقق)
-  const empShiftCount = new Map<string, { morning: number; evening: number }>();
-  for (const emp of regularEmployees) {
-    empShiftCount.set(String(emp.id), { morning: 0, evening: 0 });
-  }
-  
+  // تهيئة الخرائط لكل أسبوع
   for (const weekNum of weeks) {
-    const shiftMap = new Map<string, ShiftType>();
-    weeklyShifts.set(weekNum, shiftMap);
-    
-    // اختيار موظفات الصباح (أول X من الطابور)
-    const morningThisWeek = rotationQueue.slice(0, settings.coverageMorning);
-    
-    // اختيار موظفات المساء (بعد الصباح مباشرة)
-    const eveningThisWeek = rotationQueue.slice(
-      settings.coverageMorning, 
-      settings.coverageMorning + settings.coverageEvening
-    );
-    
-    // تعيين الشفتات
-    for (const emp of morningThisWeek) {
-      const empId = String(emp.id);
-      shiftMap.set(empId, "Morning");
-      const count = empShiftCount.get(empId)!;
-      count.morning++;
-    }
-    
-    for (const emp of eveningThisWeek) {
-      const empId = String(emp.id);
-      shiftMap.set(empId, "Evening");
-      const count = empShiftCount.get(empId)!;
-      count.evening++;
-    }
-    
-    // الموظفات الزائدات (إن وجدن) لا يُعطين شفت هذا الأسبوع
-    const workingThisWeek = [...morningThisWeek, ...eveningThisWeek];
-    const notWorkingThisWeek = rotationQueue.slice(totalNeeded);
-    
-    console.log(`    - الأسبوع ${weekNum}: صباح=${morningThisWeek.length}, مساء=${eveningThisWeek.length}, بدون شفت=${notWorkingThisWeek.length}`);
-    
-    // ═══════════════════════════════════════════════════════════════════
-    // تدوير الطابور: الموظفات اللاتي عملن ينتقلن لنهاية الطابور
-    // ═══════════════════════════════════════════════════════════════════
-    rotationQueue = [...notWorkingThisWeek, ...workingThisWeek];
+    weeklyShifts.set(weekNum, new Map<string, ShiftType>());
   }
   
-  // طباعة ملخص التوزيع لكل موظفة
-  console.log(`\n    📊 ملخص التوزيع:`);
+  // تحديد شفتات كل موظفة بشكل مستقل
+  const empMorningWeeks = new Map<string, number[]>(); // empId -> أسابيع الصباح
+  
+  for (let i = 0; i < regularEmployees.length; i++) {
+    const emp = regularEmployees[i];
+    const empId = String(emp.id);
+    
+    // اختيار تركيبة عشوائية لهذه الموظفة باستخدام seed + index
+    const empSeed = actualSeed + i * 7919; // رقم أولي لتنويع أكبر
+    const random = seededRandom(empSeed);
+    const combinationIndex = Math.floor(random() * morningWeekCombinations.length);
+    const morningWeeks = morningWeekCombinations[combinationIndex];
+    
+    empMorningWeeks.set(empId, morningWeeks);
+    
+    // تعيين الشفتات لكل أسبوع
+    for (const weekNum of weeks) {
+      const shiftMap = weeklyShifts.get(weekNum)!;
+      if (morningWeeks.includes(weekNum)) {
+        shiftMap.set(empId, "Morning");
+      } else {
+        shiftMap.set(empId, "Evening");
+      }
+    }
+  }
+  
+  // طباعة التوزيع لكل موظفة
+  console.log(`\n    📊 توزيع الشفتات لكل موظفة:`);
   for (const emp of regularEmployees) {
     const empId = String(emp.id);
-    const count = empShiftCount.get(empId)!;
-    console.log(`    - ${emp.name}: صباح=${count.morning} أسابيع, مساء=${count.evening} أسابيع`);
+    const morningWeeks = empMorningWeeks.get(empId) || [];
+    const eveningWeeks = weeks.filter(w => !morningWeeks.includes(w));
+    console.log(`    - ${emp.name}: صباح=[${morningWeeks.join(',')}], مساء=[${eveningWeeks.join(',')}]`);
+  }
+  
+  // طباعة ملخص التغطية لكل أسبوع
+  console.log(`\n    📊 التغطية المتوقعة لكل أسبوع:`);
+  for (const weekNum of weeks) {
+    const shiftMap = weeklyShifts.get(weekNum)!;
+    const mCount = [...shiftMap.values()].filter(s => s === "Morning").length;
+    const eCount = [...shiftMap.values()].filter(s => s === "Evening").length;
+    console.log(`    - الأسبوع ${weekNum}: صباح=${mCount}, مساء=${eCount}`);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
