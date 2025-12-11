@@ -248,6 +248,9 @@ export default function ScheduleGrid() {
       const form = new FormData();
       form.append('file', file);
       form.append('autoGenerateNext', 'false');
+      // إرسال السنة والشهر من الإعدادات الحالية
+      if (settings.year) form.append('year', String(settings.year));
+      if (settings.month) form.append('month', String(settings.month));
 
       const res = await fetch('/api/schedule/import', {
         method: 'POST',

@@ -11,6 +11,10 @@ export async function POST(req: NextRequest) {
     const form = await req.formData();
     const file = form.get('file');
     const autoNext = String(form.get('autoGenerateNext') ?? 'false').toLowerCase() === 'true';
+    
+    // استخدام السنة والشهر من الإعدادات إذا تم إرسالها
+    const settingsYear = form.get('year') ? Number(form.get('year')) : undefined;
+    const settingsMonth = form.get('month') ? Number(form.get('month')) : undefined;
 
     if (!(file instanceof File)) {
       return NextResponse.json({ error: 'file is required' }, { status: 400 });
@@ -24,16 +28,21 @@ export async function POST(req: NextRequest) {
     const ws = wb.worksheets[0];
     if (!ws) return NextResponse.json({ error: 'No worksheet found' }, { status: 400 });
 
-    // Detect year/month from sheet name: CALL CENTER Y-M
-    let year: number | undefined;
-    let month: number | undefined;
-    const m = /CALL\s*CENTER\s*(\d{4})[-\/](\d{1,2})/i.exec(ws.name);
-    if (m) {
-      year = Number(m[1]);
-      month = Number(m[2]);
-    }
+    // استخدام السنة والشهر من الإعدادات أولاً، وإلا من الملف
+    let year: number | undefined = settingsYear;
+    let month: number | undefined = settingsMonth;
+    
+    // إذا لم يتم إرسال السنة/الشهر، حاول قراءتها من اسم الـ Sheet
     if (!year || !month) {
-      // try to scan the header cells for Month/Year numeric values
+      const m = /CALL\s*CENTER\s*(\d{4})[-\/](\d{1,2})/i.exec(ws.name);
+      if (m) {
+        if (!year) year = Number(m[1]);
+        if (!month) month = Number(m[2]);
+      }
+    }
+    
+    // إذا لم نجد، حاول البحث في الخلايا
+    if (!year || !month) {
       outer: for (let r = 1; r <= Math.min(ws.rowCount, 25); r++) {
         const row = ws.getRow(r);
         for (let c = 1; c <= Math.min(ws.columnCount, 40); c++) {
