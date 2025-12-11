@@ -268,6 +268,16 @@ export async function generateSchedule({
     console.log(`    - مروة: ${marwaEmployee.name} (ID: ${marwaId})`);
   }
   
+  // البحث عن Tooq Almaliki (مسائية دائماً)
+  const TOOQ_ID = "3979";
+  const tooqEmployee = regularEmployees.find(e => String(e.id) === TOOQ_ID);
+  if (tooqEmployee) {
+    console.log(`    - Tooq Almaliki: ${tooqEmployee.name} (ID: ${TOOQ_ID}) - مسائية دائماً`);
+  }
+  
+  // الموظفات المشاركات في التناوب (بدون Tooq)
+  const rotatingEmployees = regularEmployees.filter(e => String(e.id) !== TOOQ_ID);
+  
   // ═══════════════════════════════════════════════════════════════════
   // نظام التوزيع الديناميكي بالأولوية
   // ═══════════════════════════════════════════════════════════════════
@@ -278,14 +288,22 @@ export async function generateSchedule({
   // ═══════════════════════════════════════════════════════════════════
   
   console.log(`    - عدد الموظفات العادية: ${regularEmployees.length}`);
+  console.log(`    - عدد الموظفات في التناوب: ${rotatingEmployees.length}`);
   console.log(`    - التغطية المطلوبة: صباح=${settings.coverageMorning}, مساء=${settings.coverageEvening}`);
   if (betweenEmployee) {
     console.log(`    - موظفة Between: ${betweenEmployee.name} (مستبعدة من التوزيع)`);
   }
   
-  // تتبع عدد أسابيع الصباح والمساء لكل موظفة
+  // حساب التغطية المسائية المتبقية (بعد حجز Tooq)
+  const eveningCoverageForRotation = tooqEmployee 
+    ? settings.coverageEvening - 1  // Tooq محجوزة مسبقاً
+    : settings.coverageEvening;
+  
+  console.log(`    - التغطية المسائية للتناوب: ${eveningCoverageForRotation} (Tooq محجوزة: ${tooqEmployee ? 'نعم' : 'لا'})`);
+  
+  // تتبع عدد أسابيع الصباح والمساء لكل موظفة (فقط للموظفات في التناوب)
   const empShiftHistory = new Map<string, { morning: number; evening: number }>();
-  for (const emp of regularEmployees) {
+  for (const emp of rotatingEmployees) {
     empShiftHistory.set(String(emp.id), { morning: 0, evening: 0 });
   }
   
@@ -298,12 +316,24 @@ export async function generateSchedule({
     empWeeklyShift.set(String(emp.id), new Map());
   }
   
+  // Tooq دائماً مسائية في كل الأسابيع
+  if (tooqEmployee) {
+    for (const weekNum of weeks) {
+      empWeeklyShift.get(TOOQ_ID)!.set(weekNum, "Evening");
+    }
+  }
+  
   for (const weekNum of weeks) {
     const shiftMap = new Map<string, ShiftType>();
     weeklyShifts.set(weekNum, shiftMap);
     
+    // Tooq دائماً مسائية
+    if (tooqEmployee) {
+      shiftMap.set(TOOQ_ID, "Evening");
+    }
+    
     // ═══════════════════════════════════════════════════════════════════
-    // حساب الأولوية لكل موظفة
+    // حساب الأولوية لكل موظفة (فقط للموظفات في التناوب)
     // ═══════════════════════════════════════════════════════════════════
     // priority > 0 → تحتاج صباح (عندها مساء أكثر)
     // priority < 0 → تحتاج مساء (عندها صباح أكثر)
@@ -318,7 +348,7 @@ export async function generateSchedule({
     
     const priorities: EmpPriority[] = [];
     
-    for (const emp of regularEmployees) {
+    for (const emp of rotatingEmployees) {
       const empId = String(emp.id);
       const history = empShiftHistory.get(empId)!;
       priorities.push({
@@ -336,10 +366,10 @@ export async function generateSchedule({
     // للصباح: نريد اللي عندهن evening > morning (priority عالي)
     // للمساء: نريد اللي عندهن morning > evening (priority منخفض)
     
-    // مرشحات الصباح: ترتيب تنازلي حسب priority
+    // مرشحات الصباح: ترتيب تنازلي حسب priority (Tooq مستبعدة تلقائياً)
     const morningCandidates = [...shuffledPriorities].sort((a, b) => b.priority - a.priority);
     
-    // مرشحات المساء: ترتيب تصاعدي حسب priority
+    // مرشحات المساء: ترتيب تصاعدي حسب priority (Tooq مستبعدة تلقائياً)
     const eveningCandidates = [...shuffledPriorities].sort((a, b) => a.priority - b.priority);
     
     // اختيار الموظفات
@@ -352,9 +382,9 @@ export async function generateSchedule({
       selectedMorningIds.add(String(p.emp.id));
     }
     
-    // اختيار المساء (من غير المختارات للصباح)
+    // اختيار المساء (من غير المختارات للصباح) - التغطية المتبقية بعد Tooq
     for (const p of eveningCandidates) {
-      if (selectedEveningIds.size >= settings.coverageEvening) break;
+      if (selectedEveningIds.size >= eveningCoverageForRotation) break;
       const empId = String(p.emp.id);
       if (!selectedMorningIds.has(empId)) {
         selectedEveningIds.add(empId);
@@ -362,9 +392,9 @@ export async function generateSchedule({
     }
     
     // إذا لم نحصل على العدد الكافي للمساء، نأخذ من الباقي
-    if (selectedEveningIds.size < settings.coverageEvening) {
+    if (selectedEveningIds.size < eveningCoverageForRotation) {
       for (const p of morningCandidates) {
-        if (selectedEveningIds.size >= settings.coverageEvening) break;
+        if (selectedEveningIds.size >= eveningCoverageForRotation) break;
         const empId = String(p.emp.id);
         if (!selectedMorningIds.has(empId) && !selectedEveningIds.has(empId)) {
           selectedEveningIds.add(empId);
@@ -372,8 +402,8 @@ export async function generateSchedule({
       }
     }
     
-    // تعيين الشفتات وتحديث التاريخ
-    for (const emp of regularEmployees) {
+    // تعيين الشفتات وتحديث التاريخ (فقط للموظفات في التناوب)
+    for (const emp of rotatingEmployees) {
       const empId = String(emp.id);
       let shift: ShiftType;
       
@@ -399,17 +429,24 @@ export async function generateSchedule({
       empWeeklyShift.get(empId)!.set(weekNum, shift);
     }
     
-    console.log(`    - الأسبوع ${weekNum}: صباح=${selectedMorningIds.size}, مساء=${selectedEveningIds.size}`);
+    // حساب التغطية الفعلية (مع Tooq)
+    const actualEvening = selectedEveningIds.size + (tooqEmployee ? 1 : 0);
+    console.log(`    - الأسبوع ${weekNum}: صباح=${selectedMorningIds.size}, مساء=${actualEvening} (Tooq+${selectedEveningIds.size})`);
   }
   
   // طباعة ملخص التوزيع النهائي
   console.log(`\n    📊 ملخص التوزيع النهائي:`);
   for (const emp of regularEmployees) {
     const empId = String(emp.id);
-    const history = empShiftHistory.get(empId)!;
     const weekShifts = empWeeklyShift.get(empId)!;
     const pattern = weeks.map(w => weekShifts.get(w) === "Morning" ? "M" : "E").join("-");
-    console.log(`    - ${emp.name}: صباح=${history.morning}, مساء=${history.evening} [${pattern}]`);
+    
+    if (empId === TOOQ_ID) {
+      console.log(`    - ${emp.name}: مسائية دائماً [${pattern}] ⭐`);
+    } else {
+      const history = empShiftHistory.get(empId)!;
+      console.log(`    - ${emp.name}: صباح=${history.morning}, مساء=${history.evening} [${pattern}]`);
+    }
   }
   
   // للتوافق مع الكود القديم
