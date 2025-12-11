@@ -132,12 +132,36 @@ export default function ScheduleGrid() {
     });
   }
 
-  // عند فتح الصفحة: توليد جدول جديد تلقائياً
+  // عند فتح الصفحة: تحميل الجدول المحفوظ أولاً (إن وجد)، وإلا توليد جدول جديد
   useEffect(() => { 
     if (settings.year && settings.month) {
-      generateNewSchedule();
+      // محاولة تحميل الجدول المحفوظ أولاً
+      loadSavedScheduleOrGenerate();
     }
   }, [settings.year, settings.month]);
+
+  // تحميل الجدول المحفوظ، وإذا لم يوجد يولد جدول جديد
+  async function loadSavedScheduleOrGenerate() {
+    if (!settings.year || !settings.month) return;
+    
+    try {
+      const res = await fetch(`/api/schedule/${settings.year}/${settings.month}`);
+      const json = await res.json();
+      
+      // إذا وجد جدول محفوظ وفيه بيانات
+      if (res.ok && json.assignments && json.assignments.length > 0) {
+        updateGridFromData(json);
+        setIsPreviewMode(false);
+        setMsg('تم تحميل الجدول المحفوظ');
+      } else {
+        // لا يوجد جدول محفوظ - توليد جدول جديد
+        generateNewSchedule();
+      }
+    } catch {
+      // في حالة الخطأ - توليد جدول جديد
+      generateNewSchedule();
+    }
+  }
 
   // حفظ الجدول المعروض حالياً في DB (بدون تغيير أي شيء في الصفحة)
   async function saveCurrentScheduleToDb() {
@@ -263,7 +287,7 @@ export default function ScheduleGrid() {
       }
       // تحميل الجدول المستورد وعرضه
       loadSavedSchedule();
-      setMsg(`✅ تم استيراد الجدول بنجاح (${json.imported} خلية) - ${json.year}/${json.month}`);
+      setMsg(`✅ تم استيراد جدول الشهر بنجاح – هذا الجدول يستخدم كأساس لتوليد الشهر التالي.`);
     } catch (e: any) {
       setMsg('❌ ' + (e?.message || 'فشل الاستيراد'));
     } finally {
