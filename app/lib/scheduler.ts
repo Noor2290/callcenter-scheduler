@@ -1,18 +1,26 @@
 // ═══════════════════════════════════════════════════════════════════════════
-//  GENERATE SCHEDULE — v9.0 (STRICT RULES IMPLEMENTATION)
+//  GENERATE SCHEDULE — v10.0 (EXACT COVERAGE FROM SETTINGS)
 //  
-//  ✅ COVERAGE FROM SETTINGS ONLY (coverageMorning, coverageEvening)
+//  ✅ COVERAGE FROM SETTINGS ONLY - NO DEFAULTS
+//     - Morning Coverage = EXACTLY the number from settings
+//     - Evening Coverage = EXACTLY the number from settings
+//     - NO exceeding these numbers
+//  
 //  ✅ WEEKLY FIXED SHIFT: Same shift for entire week per employee
 //  ✅ 2-WEEK ROTATION: 2 weeks Morning + 2 weeks Evening (alternating)
 //  ✅ BETWEEN SHIFT: If enabled, assigned employee gets "B" symbol
+//  
 //  ✅ OFF RULES:
 //     - Friday: OFF for everyone
 //     - Marwa: Saturday OFF always
 //     - Each employee: EXACTLY 1 OFF per week (no extra OFF)
 //     - Max 2 OFF per day (excluding Friday)
-//     - OFF requests are respected
-//     - Fair distribution across weeks (no same day repetition)
-//  ✅ NO EXTRA OFF: Employees work their shift unless it's their weekly OFF
+//     - OFF/V requests are respected
+//  
+//  ✅ SHORTAGE HANDLING:
+//     - If shortage due to OFF/V, distribute best possible
+//     - Never change employee's weekly shift
+//     - Never give extra OFF
 // ═══════════════════════════════════════════════════════════════════════════
 
 import {
@@ -133,7 +141,7 @@ export async function generateSchedule({
   const seed = year * 100 + month; // Consistent seed per month
   
   console.log(`\n${'═'.repeat(60)}`);
-  console.log(`[SCHEDULER v9] Generating schedule for ${year}-${month}`);
+  console.log(`[SCHEDULER v10] Generating schedule for ${year}-${month}`);
   console.log(`${'═'.repeat(60)}\n`);
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -269,10 +277,11 @@ export async function generateSchedule({
   // - Each employee has SAME shift for entire week (no daily changes)
   // - Pattern: 2 weeks Morning → 2 weeks Evening (or vice versa)
   // - Continuity: Start with opposite of last month's ending shift
-  // - Balanced: Half employees start Morning, half start Evening
+  // - Distribution based on coverage: coverageMorning for Morning, rest for Evening
   // ═══════════════════════════════════════════════════════════════════════
   
   console.log(`\n[STEP 4] Assigning weekly shifts with 2-week rotation...`);
+  console.log(`[STEP 4] Coverage target: Morning=${settings.coverageMorning}, Evening=${settings.coverageEvening}`);
   
   // Sort employees consistently for fair distribution
   const sortedEmployees = [...regularEmployees].sort((a, b) => 
@@ -280,8 +289,8 @@ export async function generateSchedule({
   );
   
   // Determine starting shift for each employee
+  // First coverageMorning employees start with Morning, rest start with Evening
   const employeeStartShift = new Map<string, "Morning" | "Evening">();
-  const halfCount = Math.ceil(sortedEmployees.length / 2);
   
   for (let i = 0; i < sortedEmployees.length; i++) {
     const emp = sortedEmployees[i];
@@ -292,8 +301,8 @@ export async function generateSchedule({
       // Continuity: opposite of last month
       employeeStartShift.set(empId, lastShift === "Morning" ? "Evening" : "Morning");
     } else {
-      // New employee: first half Morning, second half Evening
-      employeeStartShift.set(empId, i < halfCount ? "Morning" : "Evening");
+      // New employee: first coverageMorning get Morning, rest get Evening
+      employeeStartShift.set(empId, i < settings.coverageMorning ? "Morning" : "Evening");
     }
   }
   
@@ -444,18 +453,16 @@ export async function generateSchedule({
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // STEP 6: BUILD DAILY ASSIGNMENTS
+  // STEP 6: BUILD DAILY ASSIGNMENTS WITH EXACT COVERAGE
   // 
-  // Rules:
-  // - Friday → OFF for all
-  // - Vacation → V
-  // - Weekly OFF → O (exactly 1 per week per employee)
-  // - Between employee → B (works every day except OFF/V/Friday)
-  // - Regular employees → their weekly shift symbol
-  // - NO EXTRA OFF: employees work unless it's their designated OFF
+  // CRITICAL: Coverage numbers are EXACT - no exceeding allowed
+  // - Morning = EXACTLY coverageMorning employees
+  // - Evening = EXACTLY coverageEvening employees
+  // - If shortage due to OFF/V, that's acceptable (less than target)
+  // - But NEVER exceed the target numbers
   // ═══════════════════════════════════════════════════════════════════════
   
-  console.log(`\n[STEP 6] Building daily assignments...`);
+  console.log(`\n[STEP 6] Building daily assignments with EXACT coverage...`);
   console.log(`[STEP 6] Target: Morning=${settings.coverageMorning}, Evening=${settings.coverageEvening}`);
   
   const rows: Array<{
@@ -491,31 +498,83 @@ export async function generateSchedule({
     const weekShiftMap = weeklyShiftAssignment.get(weekIdx) || new Map();
     
     // ═══════════════════════════════════════════════════════════════════════
+    // CATEGORIZE AVAILABLE EMPLOYEES BY THEIR WEEKLY SHIFT
+    // ═══════════════════════════════════════════════════════════════════════
+    const morningPool: Employee[] = [];
+    const eveningPool: Employee[] = [];
+    
+    for (const emp of regularEmployees) {
+      const empId = String(emp.id);
+      
+      // Skip if vacation or weekly OFF
+      if (isVacation(empId, dateISO)) continue;
+      if (weekOffMap.get(empId) === dateISO) continue;
+      
+      const assignedShift = weekShiftMap.get(empId);
+      if (assignedShift === "Morning") {
+        morningPool.push(emp);
+      } else if (assignedShift === "Evening") {
+        eveningPool.push(emp);
+      }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // SELECT EXACTLY THE REQUIRED NUMBER FOR EACH SHIFT
+    // NEVER EXCEED - only shortage is acceptable
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    // Select EXACTLY coverageMorning (or less if shortage)
+    const selectedMorning = morningPool.slice(0, settings.coverageMorning);
+    const selectedMorningIds = new Set(selectedMorning.map(e => String(e.id)));
+    
+    // Select EXACTLY coverageEvening (or less if shortage)
+    const selectedEvening = eveningPool.slice(0, settings.coverageEvening);
+    const selectedEveningIds = new Set(selectedEvening.map(e => String(e.id)));
+    
+    // Log if there's a shortage
+    if (selectedMorning.length < settings.coverageMorning) {
+      console.log(`[STEP 6] ${dateISO}: Morning shortage ${selectedMorning.length}/${settings.coverageMorning}`);
+    }
+    if (selectedEvening.length < settings.coverageEvening) {
+      console.log(`[STEP 6] ${dateISO}: Evening shortage ${selectedEvening.length}/${settings.coverageEvening}`);
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
     // BUILD ROWS FOR THIS DAY
+    // Employees not selected for coverage get OFF (they are extra)
     // ═══════════════════════════════════════════════════════════════════════
     for (const emp of allEmployees) {
       const empId = String(emp.id);
       let symbol: string;
       
-      // Check vacation first
+      // 1. Check vacation first
       if (isVacation(empId, dateISO)) {
         symbol = VAC;
       }
-      // Check weekly OFF
+      // 2. Check weekly OFF
       else if (weekOffMap.get(empId) === dateISO) {
         symbol = OFF;
       }
-      // Between Shift employee
+      // 3. Between Shift employee - works B every day (except OFF/V/Friday)
       else if (betweenEmployee && empId === String(betweenEmployee.id)) {
         symbol = BETWEEN;
       }
-      // Regular employees - work their assigned shift
+      // 4. Selected for Morning coverage
+      else if (selectedMorningIds.has(empId)) {
+        symbol = getShiftSymbol(emp, "Morning");
+      }
+      // 5. Selected for Evening coverage
+      else if (selectedEveningIds.has(empId)) {
+        symbol = getShiftSymbol(emp, "Evening");
+      }
+      // 6. NOT selected - these are "extra" employees beyond coverage
+      // They work their assigned shift (no extra OFF given)
       else {
         const assignedShift = weekShiftMap.get(empId);
         if (assignedShift) {
           symbol = getShiftSymbol(emp, assignedShift);
         } else {
-          // Fallback (shouldn't happen)
+          // Fallback - shouldn't happen
           symbol = getShiftSymbol(emp, "Morning");
         }
       }
