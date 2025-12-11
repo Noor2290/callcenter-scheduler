@@ -546,13 +546,63 @@ export async function generateSchedule({
     }
     
     // ═══════════════════════════════════════════════════════════════════
-    // ثانياً: معالجة باقي الموظفات
+    // ثانياً: معالجة Tooq (OFF في أيام المساء فقط)
+    // ═══════════════════════════════════════════════════════════════════
+    if (tooqEmployee) {
+      // التحقق من عدم وجود Vacation
+      let tooqHasVacation = false;
+      for (const d of workDays) {
+        const dateISO = format(d, "yyyy-MM-dd");
+        if (vacationSet.has(`${TOOQ_ID}_${dateISO}`)) {
+          tooqHasVacation = true;
+          break;
+        }
+      }
+      
+      if (!tooqHasVacation && !offMap.has(TOOQ_ID)) {
+        // التحقق من طلب OFF مسبق
+        let tooqHasOffRequest = false;
+        for (const d of workDays) {
+          const dateISO = format(d, "yyyy-MM-dd");
+          if (offRequestSet.has(`${TOOQ_ID}_${dateISO}`)) {
+            const count = dayOffCount.get(dateISO) || 0;
+            if (count < MAX_OFF_PER_DAY) {
+              offMap.set(TOOQ_ID, dateISO);
+              dayOffCount.set(dateISO, count + 1);
+              tooqHasOffRequest = true;
+              break;
+            }
+          }
+        }
+        
+        // إذا لم يكن هناك طلب OFF، اختيار يوم عشوائي من أيام المساء فقط
+        if (!tooqHasOffRequest) {
+          // Tooq تحصل على OFF من الأحد-الخميس (أيام المساء)
+          // لأنها مسائية دائماً، كل أيام العمل هي أيام مساء لها
+          for (const d of shuffledOffDays) {
+            const dateISO = format(d, "yyyy-MM-dd");
+            const count = dayOffCount.get(dateISO) || 0;
+            if (count < MAX_OFF_PER_DAY) {
+              offMap.set(TOOQ_ID, dateISO);
+              dayOffCount.set(dateISO, count + 1);
+              break;
+            }
+          }
+        }
+      }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // ثالثاً: معالجة باقي الموظفات
     // ═══════════════════════════════════════════════════════════════════
     for (const emp of shuffledEmps) {
       const empId = String(emp.id);
       
       // تخطي مروة (تم معالجتها)
       if (empId === marwaId) continue;
+      
+      // تخطي Tooq (تم معالجتها)
+      if (empId === TOOQ_ID) continue;
       
       // تخطي إذا تم تعيين OFF بالفعل
       if (offMap.has(empId)) continue;
