@@ -86,39 +86,68 @@ export async function POST(req: NextRequest) {
     const daysInMonth = new Date(year, month, 0).getDate();
 
     // ═══════════════════════════════════════════════════════════════════════
-    // البحث عن صف الأيام (DAYS & DATE/NAME) وتحديد بداية البيانات
+    // البحث عن صف الأيام وتحديد بداية البيانات
     // ═══════════════════════════════════════════════════════════════════════
     let headerRow = -1;
-    let nameCol = -1;
-    let idCol = -1;
-    let firstDayCol = -1;
+    let nameCol = 1;  // العمود A = الاسم
+    let idCol = 2;    // العمود B = ID
+    let firstDayCol = 3; // العمود C = أول يوم
     
-    // البحث عن صف العناوين
+    // البحث عن صف العناوين (يحتوي على NAME أو DAYS أو أرقام 1,2,3...)
     for (let r = 1; r <= Math.min(ws.rowCount, 20); r++) {
       const row = ws.getRow(r);
-      for (let c = 1; c <= Math.min(ws.columnCount, 10); c++) {
+      
+      // التحقق من وجود كلمة NAME أو DAYS في أي خلية
+      for (let c = 1; c <= Math.min(ws.columnCount, 5); c++) {
         const v = String(row.getCell(c).value ?? '').toLowerCase();
         if (v.includes('name') || v.includes('days') || v.includes('اسم')) {
           headerRow = r;
           nameCol = c;
-          // البحث عن عمود ID
-          for (let cc = c + 1; cc <= Math.min(ws.columnCount, 10); cc++) {
+          
+          // البحث عن عمود ID (الخلية التالية أو التي تحتوي على ID)
+          for (let cc = c; cc <= Math.min(ws.columnCount, c + 3); cc++) {
             const vv = String(row.getCell(cc).value ?? '').toLowerCase();
-            if (vv.includes('id') || vv === 'id' || /^\d+$/.test(vv)) {
+            if (vv.includes('id') || vv === 'id') {
               idCol = cc;
               break;
             }
           }
+          if (idCol <= nameCol) idCol = nameCol + 1;
           break;
         }
       }
       if (headerRow > 0) break;
+      
+      // أو البحث عن صف يحتوي على أرقام 1, 2, 3 (أيام الشهر)
+      let hasNumbers = 0;
+      for (let c = 3; c <= Math.min(ws.columnCount, 10); c++) {
+        const v = row.getCell(c).value;
+        if (typeof v === 'number' && v >= 1 && v <= 31) hasNumbers++;
+      }
+      if (hasNumbers >= 3) {
+        headerRow = r;
+        break;
+      }
     }
     
-    // إذا لم نجد، نستخدم القيم الافتراضية
-    if (headerRow < 0) headerRow = 7; // الصف 7 عادة يحتوي على NAME
-    if (nameCol < 0) nameCol = 1;
-    if (idCol < 0) idCol = 2;
+    // إذا لم نجد صف العناوين، نفترض أنه الصف 7 أو 8
+    if (headerRow < 0) {
+      // البحث عن أول صف يحتوي على اسم موظفة معروفة
+      for (let r = 1; r <= Math.min(ws.rowCount, 15); r++) {
+        const row = ws.getRow(r);
+        const nameVal = row.getCell(1).value;
+        const codeVal = row.getCell(2).value;
+        const nameStr = norm(nameVal);
+        const codeStr = typeof codeVal === 'number' ? String(codeVal) : String(codeVal || '').trim();
+        
+        if (byCode.has(codeStr) || byName.has(nameStr)) {
+          headerRow = r - 1; // الصف السابق هو العناوين
+          break;
+        }
+      }
+    }
+    
+    if (headerRow < 0) headerRow = 7;
     firstDayCol = Math.max(nameCol, idCol) + 1;
     
     console.log(`[IMPORT] Header row: ${headerRow}, Name col: ${nameCol}, ID col: ${idCol}, First day col: ${firstDayCol}`);

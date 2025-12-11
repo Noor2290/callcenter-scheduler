@@ -423,7 +423,7 @@ export default function ScheduleGrid() {
         <button 
           onClick={saveCurrentScheduleToDb} 
           className="px-5 py-2.5 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl font-medium shadow-md hover:shadow-lg disabled:opacity-60 flex items-center gap-2 transition-all" 
-          disabled={isPending || isGenerating || !isPreviewMode}
+          disabled={isPending || isGenerating || Object.keys(grid).length === 0}
         >
           <span>💾</span>
           <span>حفظ الجدول</span>
