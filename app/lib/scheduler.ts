@@ -653,15 +653,26 @@ export async function generateSchedule({
           symbol = BETWEEN;
         }
       }
-      // 2. إجازة V
+      // 2. Tooq Almaliki - مسائية دائماً
+      else if (empId === TOOQ_ID) {
+        if (vacationSet.has(`${empId}_${dateISO}`)) {
+          symbol = VAC;
+        } else if (weekOffMap.get(empId) === dateISO) {
+          symbol = OFF;
+        } else {
+          // دائماً مسائية
+          symbol = getShiftSymbol(emp, "Evening");
+        }
+      }
+      // 3. إجازة V
       else if (vacationSet.has(`${empId}_${dateISO}`)) {
         symbol = VAC;
       }
-      // 3. OFF الأسبوعي
+      // 4. OFF الأسبوعي
       else if (weekOffMap.get(empId) === dateISO) {
         symbol = OFF;
       }
-      // 4. موظفة لها شفت محدد هذا الأسبوع
+      // 5. موظفة لها شفت محدد هذا الأسبوع
       else {
         const shift = weekShiftMap.get(empId);
         if (shift === "Morning") {
