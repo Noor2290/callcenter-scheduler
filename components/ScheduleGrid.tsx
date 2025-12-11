@@ -354,14 +354,24 @@ export default function ScheduleGrid() {
     return days;
   }, [settings.year, settings.month]);
 
+  // أسماء الأشهر بالعربي
+  const monthNames = [
+    'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+    'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
+  ];
+
+  const getMonthName = (m: number) => monthNames[m - 1] || '';
+
   return (
     <div className="space-y-6">
       {/* معلومات الجدول */}
       {data && (
         <div className="flex flex-wrap items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg border border-slate-200">
-            <span className="text-slate-400">📅</span>
-            <span className="text-sm font-medium text-slate-700">{data.month.year}/{String(data.month.month).padStart(2,'0')}</span>
+          <div className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-indigo-600 rounded-lg shadow-sm">
+            <span className="text-white">📅</span>
+            <span className="text-base font-bold text-white">
+              {getMonthName(data.month.month)} {data.month.year}
+            </span>
           </div>
           <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg border border-slate-200">
             <span className="text-slate-400">👥</span>
