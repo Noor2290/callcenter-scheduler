@@ -31,6 +31,16 @@ function toISO(y: number, m: number, d: number) {
   return format(new Date(y, m - 1, d), 'yyyy-MM-dd');
 }
 
+// أسماء الأشهر بالعربي
+const MONTH_NAMES = [
+  'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+  'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
+];
+
+function getMonthName(m: number): string {
+  return MONTH_NAMES[m - 1] || '';
+}
+
 export default function ScheduleGrid() {
   const [settings, setSettings] = useState<{ year?: number; month?: number }>({});
   const [data, setData] = useState<MonthData | null>(null);
@@ -286,9 +296,7 @@ export default function ScheduleGrid() {
       const form = new FormData();
       form.append('file', file);
       form.append('autoGenerateNext', 'false');
-      // إرسال السنة والشهر من الإعدادات الحالية
-      if (settings.year) form.append('year', String(settings.year));
-      if (settings.month) form.append('month', String(settings.month));
+      // ❌ لا نرسل السنة والشهر - نترك الـ API يستخرجها من الملف
 
       const res = await fetch('/api/schedule/import', {
         method: 'POST',
@@ -299,9 +307,20 @@ export default function ScheduleGrid() {
         setMsg('❌ ' + (json.error || 'فشل الاستيراد'));
         return;
       }
-      // تحميل الجدول المستورد وعرضه
-      loadSavedSchedule();
-      setMsg(`✅ تم استيراد جدول الشهر بنجاح (${json.employees} موظفة، ${json.imported} خلية) – هذا الجدول يستخدم كأساس لتوليد الشهر التالي.`);
+      
+      // ✅ تحديث العرض بالشهر والسنة المستخرجة من الملف
+      if (json.year && json.month) {
+        // تحميل الجدول المستورد للشهر المستخرج من الملف
+        const scheduleRes = await fetch(`/api/schedule/${json.year}/${json.month}`);
+        const scheduleJson = await scheduleRes.json();
+        if (scheduleRes.ok && scheduleJson.assignments) {
+          setData(scheduleJson);
+          updateGridFromData(scheduleJson);
+          setIsPreviewMode(false);
+        }
+      }
+      
+      setMsg(`✅ تم استيراد جدول ${getMonthName(json.month)} ${json.year} بنجاح (${json.employees} موظفة، ${json.imported} خلية)`);
     } catch (e: any) {
       setMsg('❌ ' + (e?.message || 'فشل الاستيراد'));
     } finally {
@@ -354,13 +373,6 @@ export default function ScheduleGrid() {
     return days;
   }, [settings.year, settings.month]);
 
-  // أسماء الأشهر بالعربي
-  const monthNames = [
-    'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
-    'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
-  ];
-
-  const getMonthName = (m: number) => monthNames[m - 1] || '';
 
   return (
     <div className="space-y-6">
