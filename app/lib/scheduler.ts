@@ -1,12 +1,18 @@
 // ═══════════════════════════════════════════════════════════════════════════
-//  GENERATE SCHEDULE — v8.0 (WEEKLY ROTATION + BETWEEN SHIFT)
+//  GENERATE SCHEDULE — v9.0 (STRICT RULES IMPLEMENTATION)
 //  
 //  ✅ COVERAGE FROM SETTINGS ONLY (coverageMorning, coverageEvening)
 //  ✅ WEEKLY FIXED SHIFT: Same shift for entire week per employee
 //  ✅ 2-WEEK ROTATION: 2 weeks Morning + 2 weeks Evening (alternating)
-//  ✅ BETWEEN SHIFT: If enabled, assigned employee gets "B" on extra coverage days
-//  ✅ OFF RULES: Friday all, Marwa Saturday, 1 weekly OFF per employee (max 2/day)
-//  ✅ CONTINUITY: Opposite shift pattern from previous month
+//  ✅ BETWEEN SHIFT: If enabled, assigned employee gets "B" symbol
+//  ✅ OFF RULES:
+//     - Friday: OFF for everyone
+//     - Marwa: Saturday OFF always
+//     - Each employee: EXACTLY 1 OFF per week (no extra OFF)
+//     - Max 2 OFF per day (excluding Friday)
+//     - OFF requests are respected
+//     - Fair distribution across weeks (no same day repetition)
+//  ✅ NO EXTRA OFF: Employees work their shift unless it's their weekly OFF
 // ═══════════════════════════════════════════════════════════════════════════
 
 import {
@@ -95,10 +101,19 @@ function parseShiftFromSymbol(symbol: string): Shift | null {
   return null;
 }
 
-function shuffle<T>(arr: T[]): T[] {
+// Seeded random for consistent results
+function seededRandom(seed: number): () => number {
+  return function() {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+}
+
+function shuffleWithSeed<T>(arr: T[], seed: number): T[] {
   const result = [...arr];
+  const random = seededRandom(seed);
   for (let i = result.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(random() * (i + 1));
     [result[i], result[j]] = [result[j], result[i]];
   }
   return result;
@@ -115,8 +130,10 @@ export async function generateSchedule({
   month: number;
 }) {
   const sb = supabaseServer();
+  const seed = year * 100 + month; // Consistent seed per month
+  
   console.log(`\n${'═'.repeat(60)}`);
-  console.log(`[SCHEDULER v8] Generating schedule for ${year}-${month}`);
+  console.log(`[SCHEDULER v9] Generating schedule for ${year}-${month}`);
   console.log(`${'═'.repeat(60)}\n`);
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -187,6 +204,7 @@ export async function generateSchedule({
     vacationSet.add(`${v.employee_id}_${format(new Date(v.date), "yyyy-MM-dd")}`);
   }
   
+  // Track OFF requests per employee per week
   const offRequestMap = new Map<string, string>();
   for (const o of offRequestData || []) {
     const dateISO = format(new Date(o.date), "yyyy-MM-dd");
@@ -208,7 +226,6 @@ export async function generateSchedule({
   const numWeeks = weekIndices.length;
   
   console.log(`[STEP 2] Days: ${allDays.length}, Weeks: ${numWeeks}`);
-  console.log(`[STEP 2] Week indices: ${weekIndices.join(', ')}`);
 
   // ═══════════════════════════════════════════════════════════════════════
   // STEP 3: LOAD PREVIOUS MONTH FOR CONTINUITY
@@ -224,7 +241,6 @@ export async function generateSchedule({
     .eq("month", prevMonth)
     .single();
   
-  // Track last 2-week block shift for each employee
   const prevMonthLastShift = new Map<string, "Morning" | "Evening">();
   
   if (prevMonthRow) {
@@ -250,23 +266,25 @@ export async function generateSchedule({
   // STEP 4: ASSIGN WEEKLY SHIFTS (2-WEEK ROTATION PATTERN)
   // 
   // Rules:
-  // - Each employee has SAME shift for entire week
+  // - Each employee has SAME shift for entire week (no daily changes)
   // - Pattern: 2 weeks Morning → 2 weeks Evening (or vice versa)
   // - Continuity: Start with opposite of last month's ending shift
-  // - Half employees start Morning, half start Evening
+  // - Balanced: Half employees start Morning, half start Evening
   // ═══════════════════════════════════════════════════════════════════════
   
   console.log(`\n[STEP 4] Assigning weekly shifts with 2-week rotation...`);
   
-  // Determine starting shift for each employee based on continuity
+  // Sort employees consistently for fair distribution
+  const sortedEmployees = [...regularEmployees].sort((a, b) => 
+    String(a.id).localeCompare(String(b.id))
+  );
+  
+  // Determine starting shift for each employee
   const employeeStartShift = new Map<string, "Morning" | "Evening">();
+  const halfCount = Math.ceil(sortedEmployees.length / 2);
   
-  // Split employees into two groups for balanced rotation
-  const shuffledEmployees = shuffle([...regularEmployees]);
-  const halfCount = Math.ceil(shuffledEmployees.length / 2);
-  
-  for (let i = 0; i < shuffledEmployees.length; i++) {
-    const emp = shuffledEmployees[i];
+  for (let i = 0; i < sortedEmployees.length; i++) {
+    const emp = sortedEmployees[i];
     const empId = String(emp.id);
     const lastShift = prevMonthLastShift.get(empId);
     
@@ -274,7 +292,7 @@ export async function generateSchedule({
       // Continuity: opposite of last month
       employeeStartShift.set(empId, lastShift === "Morning" ? "Evening" : "Morning");
     } else {
-      // New employee: alternate based on position
+      // New employee: first half Morning, second half Evening
       employeeStartShift.set(empId, i < halfCount ? "Morning" : "Evening");
     }
   }
@@ -295,12 +313,9 @@ export async function generateSchedule({
       const twoWeekBlock = Math.floor(weekPos / 2);
       const isOpposite = twoWeekBlock % 2 === 1;
       
-      let assignedShift: "Morning" | "Evening";
-      if (isOpposite) {
-        assignedShift = startShift === "Morning" ? "Evening" : "Morning";
-      } else {
-        assignedShift = startShift;
-      }
+      const assignedShift: "Morning" | "Evening" = isOpposite
+        ? (startShift === "Morning" ? "Evening" : "Morning")
+        : startShift;
       
       shiftMap.set(empId, assignedShift);
     }
@@ -308,23 +323,24 @@ export async function generateSchedule({
   
   // Log weekly assignments
   for (const [weekIdx, shiftMap] of weeklyShiftAssignment) {
-    const morningCount = [...shiftMap.values()].filter(s => s === "Morning").length;
-    const eveningCount = [...shiftMap.values()].filter(s => s === "Evening").length;
-    console.log(`[STEP 4] Week ${weekIdx}: Morning=${morningCount}, Evening=${eveningCount}`);
+    const mCount = [...shiftMap.values()].filter(s => s === "Morning").length;
+    const eCount = [...shiftMap.values()].filter(s => s === "Evening").length;
+    console.log(`[STEP 4] Week ${weekIdx}: Morning=${mCount}, Evening=${eCount}`);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // STEP 5: ASSIGN WEEKLY OFF DAYS (MAX 2 PER DAY)
+  // STEP 5: ASSIGN WEEKLY OFF DAYS
   // 
   // Rules:
-  // - Friday: OFF for everyone
+  // - Friday: OFF for everyone (handled separately)
   // - Marwa: Saturday OFF always
-  // - Each employee: 1 OFF per week (excluding Friday)
+  // - Each employee: EXACTLY 1 OFF per week (no more, no less)
   // - Max 2 employees OFF per day (excluding Friday)
-  // - OffRequest takes priority
+  // - OFF requests are respected first
+  // - Fair distribution: rotate OFF days across weeks
   // ═══════════════════════════════════════════════════════════════════════
   
-  console.log(`\n[STEP 5] Assigning weekly OFF days (max ${MAX_OFF_PER_DAY} per day)...`);
+  console.log(`\n[STEP 5] Assigning weekly OFF days...`);
   
   // Get non-Friday days per week
   const weekDays = new Map<number, string[]>();
@@ -335,60 +351,82 @@ export async function generateSchedule({
     weekDays.get(wIdx)!.push(format(d, "yyyy-MM-dd"));
   }
   
+  // Track last OFF day index per employee for fair rotation
+  const lastOffDayIndex = new Map<string, number>();
+  
   // weekIdx -> empId -> offDateISO
   const weeklyOffDays = new Map<number, Map<string, string>>();
   
-  for (const weekIdx of weekIndices) {
+  for (let weekPos = 0; weekPos < weekIndices.length; weekPos++) {
+    const weekIdx = weekIndices[weekPos];
     const offMap = new Map<string, string>();
     weeklyOffDays.set(weekIdx, offMap);
     
     const availableDays = weekDays.get(weekIdx) || [];
     if (availableDays.length === 0) continue;
     
-    // Track OFF count per day for balancing (max 2)
+    // Track OFF count per day (max 2)
     const dayOffCount = new Map<string, number>();
     for (const d of availableDays) dayOffCount.set(d, 0);
     
-    // Process employees in random order
-    const employeesToProcess = shuffle([...regularEmployees]);
-    if (betweenEmployee) employeesToProcess.push(betweenEmployee);
+    // All employees need OFF (regular + between)
+    const allEmpsForOff = [...regularEmployees];
+    if (betweenEmployee) allEmpsForOff.push(betweenEmployee);
     
-    for (const emp of employeesToProcess) {
+    // Sort by last OFF day index for fair rotation
+    const sortedEmps = [...allEmpsForOff].sort((a, b) => {
+      const aLast = lastOffDayIndex.get(String(a.id)) ?? -1;
+      const bLast = lastOffDayIndex.get(String(b.id)) ?? -1;
+      return aLast - bLast;
+    });
+    
+    for (const emp of sortedEmps) {
       const empId = String(emp.id);
       
-      // Check OffRequest first
+      // 1. Check OFF request first (priority)
       const offReq = getOffRequest(empId, weekIdx);
       if (offReq && availableDays.includes(offReq)) {
-        const currentCount = dayOffCount.get(offReq) || 0;
-        if (currentCount < MAX_OFF_PER_DAY) {
+        const count = dayOffCount.get(offReq) || 0;
+        if (count < MAX_OFF_PER_DAY) {
           offMap.set(empId, offReq);
-          dayOffCount.set(offReq, currentCount + 1);
+          dayOffCount.set(offReq, count + 1);
+          lastOffDayIndex.set(empId, availableDays.indexOf(offReq));
           continue;
         }
       }
       
-      // Marwa: Saturday OFF always
+      // 2. Marwa: Saturday OFF always
       if (empId === MARWA_ID) {
         const saturday = availableDays.find(d => getDay(new Date(d)) === 6);
         if (saturday && !isVacation(empId, saturday)) {
-          const currentCount = dayOffCount.get(saturday) || 0;
-          if (currentCount < MAX_OFF_PER_DAY) {
+          const count = dayOffCount.get(saturday) || 0;
+          if (count < MAX_OFF_PER_DAY) {
             offMap.set(empId, saturday);
-            dayOffCount.set(saturday, currentCount + 1);
+            dayOffCount.set(saturday, count + 1);
+            lastOffDayIndex.set(empId, availableDays.indexOf(saturday));
             continue;
           }
         }
       }
       
-      // Find day with minimum OFFs (max 2 per day)
+      // 3. Find best day: prefer different day than last week, min OFF count
+      const lastIdx = lastOffDayIndex.get(empId) ?? -1;
       let bestDay: string | null = null;
-      let minCount = Infinity;
+      let bestScore = Infinity;
       
-      for (const d of availableDays) {
+      for (let i = 0; i < availableDays.length; i++) {
+        const d = availableDays[i];
         if (isVacation(empId, d)) continue;
+        
         const count = dayOffCount.get(d) || 0;
-        if (count < MAX_OFF_PER_DAY && count < minCount) {
-          minCount = count;
+        if (count >= MAX_OFF_PER_DAY) continue;
+        
+        // Score: prefer days with fewer OFFs, and different from last week
+        const sameAsLast = i === lastIdx ? 10 : 0;
+        const score = count * 100 + sameAsLast + i;
+        
+        if (score < bestScore) {
+          bestScore = score;
           bestDay = d;
         }
       }
@@ -396,27 +434,28 @@ export async function generateSchedule({
       if (bestDay) {
         offMap.set(empId, bestDay);
         dayOffCount.set(bestDay, (dayOffCount.get(bestDay) || 0) + 1);
+        lastOffDayIndex.set(empId, availableDays.indexOf(bestDay));
       }
     }
     
-    // Log OFF distribution for this week
-    const offDistribution = [...dayOffCount.entries()].map(([d, c]) => `${d.slice(5)}:${c}`).join(', ');
-    console.log(`[STEP 5] Week ${weekIdx} OFF distribution: ${offDistribution}`);
+    // Log OFF distribution
+    const dist = [...dayOffCount.entries()].map(([d, c]) => `${d.slice(8)}:${c}`).join(' ');
+    console.log(`[STEP 5] Week ${weekPos + 1}: ${dist}`);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // STEP 6: BUILD DAILY ASSIGNMENTS WITH EXACT COVERAGE
+  // STEP 6: BUILD DAILY ASSIGNMENTS
   // 
-  // For each day:
-  // 1. Friday → OFF for all
-  // 2. Vacation → V
-  // 3. Weekly OFF → O
-  // 4. Between Shift employee → B (when needed for extra coverage)
-  // 5. Regular employees → Morning/Evening based on weekly assignment
-  // 6. Ensure exactly coverageMorning Morning and coverageEvening Evening
+  // Rules:
+  // - Friday → OFF for all
+  // - Vacation → V
+  // - Weekly OFF → O (exactly 1 per week per employee)
+  // - Between employee → B (works every day except OFF/V/Friday)
+  // - Regular employees → their weekly shift symbol
+  // - NO EXTRA OFF: employees work unless it's their designated OFF
   // ═══════════════════════════════════════════════════════════════════════
   
-  console.log(`\n[STEP 6] Building daily assignments with exact coverage...`);
+  console.log(`\n[STEP 6] Building daily assignments...`);
   console.log(`[STEP 6] Target: Morning=${settings.coverageMorning}, Evening=${settings.coverageEvening}`);
   
   const rows: Array<{
@@ -452,79 +491,33 @@ export async function generateSchedule({
     const weekShiftMap = weeklyShiftAssignment.get(weekIdx) || new Map();
     
     // ═══════════════════════════════════════════════════════════════════════
-    // CATEGORIZE EMPLOYEES BY THEIR WEEKLY SHIFT
-    // ═══════════════════════════════════════════════════════════════════════
-    const morningEmployees: Employee[] = [];
-    const eveningEmployees: Employee[] = [];
-    
-    for (const emp of regularEmployees) {
-      const empId = String(emp.id);
-      
-      // Skip if vacation or OFF
-      if (isVacation(empId, dateISO)) continue;
-      if (weekOffMap.get(empId) === dateISO) continue;
-      
-      const assignedShift = weekShiftMap.get(empId);
-      if (assignedShift === "Morning") {
-        morningEmployees.push(emp);
-      } else if (assignedShift === "Evening") {
-        eveningEmployees.push(emp);
-      }
-    }
-    
-    // ═══════════════════════════════════════════════════════════════════════
-    // APPLY EXACT COVERAGE FROM SETTINGS
-    // ═══════════════════════════════════════════════════════════════════════
-    
-    // Select exactly coverageMorning from morning pool
-    const finalMorning = morningEmployees.slice(0, settings.coverageMorning);
-    const finalMorningIds = new Set(finalMorning.map(e => String(e.id)));
-    
-    // Select exactly coverageEvening from evening pool
-    const finalEvening = eveningEmployees.slice(0, settings.coverageEvening);
-    const finalEveningIds = new Set(finalEvening.map(e => String(e.id)));
-    
-    // Check if we need extra coverage (Between Shift)
-    const morningShortage = settings.coverageMorning - finalMorning.length;
-    const eveningShortage = settings.coverageEvening - finalEvening.length;
-    const needsBetween = (morningShortage > 0 || eveningShortage > 0) && betweenEmployee;
-    
-    // Log coverage status
-    if (morningShortage > 0 || eveningShortage > 0) {
-      console.warn(`⚠️ ${dateISO}: Morning=${finalMorning.length}/${settings.coverageMorning}, Evening=${finalEvening.length}/${settings.coverageEvening}`);
-    }
-    
-    // ═══════════════════════════════════════════════════════════════════════
     // BUILD ROWS FOR THIS DAY
     // ═══════════════════════════════════════════════════════════════════════
     for (const emp of allEmployees) {
       const empId = String(emp.id);
       let symbol: string;
       
-      // Between Shift employee handling
-      if (betweenEmployee && empId === String(betweenEmployee.id)) {
-        if (isVacation(empId, dateISO)) {
-          symbol = VAC;
-        } else if (weekOffMap.get(empId) === dateISO) {
-          symbol = OFF;
-        } else if (needsBetween) {
-          symbol = BETWEEN;
-        } else {
-          symbol = OFF; // No extra coverage needed
-        }
-      }
-      // Regular employees
-      else if (isVacation(empId, dateISO)) {
+      // Check vacation first
+      if (isVacation(empId, dateISO)) {
         symbol = VAC;
-      } else if (weekOffMap.get(empId) === dateISO) {
+      }
+      // Check weekly OFF
+      else if (weekOffMap.get(empId) === dateISO) {
         symbol = OFF;
-      } else if (finalMorningIds.has(empId)) {
-        symbol = getShiftSymbol(emp, "Morning");
-      } else if (finalEveningIds.has(empId)) {
-        symbol = getShiftSymbol(emp, "Evening");
-      } else {
-        // Employee assigned to a shift but not selected for coverage today
-        symbol = OFF;
+      }
+      // Between Shift employee
+      else if (betweenEmployee && empId === String(betweenEmployee.id)) {
+        symbol = BETWEEN;
+      }
+      // Regular employees - work their assigned shift
+      else {
+        const assignedShift = weekShiftMap.get(empId);
+        if (assignedShift) {
+          symbol = getShiftSymbol(emp, assignedShift);
+        } else {
+          // Fallback (shouldn't happen)
+          symbol = getShiftSymbol(emp, "Morning");
+        }
       }
       
       rows.push({
@@ -540,38 +533,61 @@ export async function generateSchedule({
   console.log(`[STEP 6] Total assignments: ${rows.length}`);
 
   // ═══════════════════════════════════════════════════════════════════════
-  // STEP 7: VERIFY COVERAGE
+  // STEP 7: VERIFY COVERAGE & OFF RULES
   // ═══════════════════════════════════════════════════════════════════════
   
-  console.log(`\n[STEP 7] Verifying coverage...`);
+  console.log(`\n[STEP 7] Verifying coverage and OFF rules...`);
   
   const morningSymbols = Object.values(MORNING_SHIFTS);
   const eveningSymbols = Object.values(EVENING_SHIFTS);
   
   let issues = 0;
+  
   for (const day of allDays) {
     const dateISO = format(day, "yyyy-MM-dd");
-    if (getDay(day) === 5) continue;
+    if (getDay(day) === 5) continue; // Skip Friday
     
     const dayRows = rows.filter(r => r.date === dateISO);
     const mCount = dayRows.filter(r => morningSymbols.includes(r.symbol)).length;
     const eCount = dayRows.filter(r => eveningSymbols.includes(r.symbol)).length;
-    const bCount = dayRows.filter(r => r.symbol === BETWEEN).length;
+    const offCount = dayRows.filter(r => r.symbol === OFF).length;
     
-    if (mCount !== settings.coverageMorning) {
+    // Check coverage
+    if (mCount < settings.coverageMorning) {
       console.warn(`[WARN] ${dateISO}: Morning=${mCount}/${settings.coverageMorning}`);
       issues++;
     }
-    if (eCount !== settings.coverageEvening) {
+    if (eCount < settings.coverageEvening) {
       console.warn(`[WARN] ${dateISO}: Evening=${eCount}/${settings.coverageEvening}`);
       issues++;
     }
-    if (bCount > 0) {
-      console.log(`[INFO] ${dateISO}: Between=${bCount}`);
+    
+    // Check OFF limit (max 2 per day, excluding Friday)
+    if (offCount > MAX_OFF_PER_DAY) {
+      console.warn(`[WARN] ${dateISO}: OFF=${offCount} (max ${MAX_OFF_PER_DAY})`);
+      issues++;
     }
   }
   
-  console.log(issues === 0 ? `[STEP 7] ✅ All days meet coverage!` : `[STEP 7] ⚠️ ${issues} coverage issues`);
+  // Verify each employee has exactly 1 OFF per week
+  for (const weekIdx of weekIndices) {
+    const weekOffMap = weeklyOffDays.get(weekIdx);
+    if (!weekOffMap) continue;
+    
+    for (const emp of allEmployees) {
+      const empId = String(emp.id);
+      if (!weekOffMap.has(empId) && empId !== settings.betweenShiftEmployeeId) {
+        // Check if employee has vacation all week
+        const weekDaysList = weekDays.get(weekIdx) || [];
+        const hasVacationAllWeek = weekDaysList.every(d => isVacation(empId, d));
+        if (!hasVacationAllWeek) {
+          console.warn(`[WARN] Week ${weekIdx}: ${emp.name} has no OFF assigned`);
+        }
+      }
+    }
+  }
+  
+  console.log(issues === 0 ? `[STEP 7] ✅ All rules verified!` : `[STEP 7] ⚠️ ${issues} issues found`);
 
   // ═══════════════════════════════════════════════════════════════════════
   // STEP 8: SAVE TO DATABASE
