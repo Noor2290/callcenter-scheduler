@@ -504,35 +504,44 @@ export async function generateSchedule({
       const empId = String(emp.id);
       let symbol: string;
       
-      // 1. إجازة V
-      if (vacationSet.has(`${empId}_${dateISO}`)) {
+      // 1. موظفة Between Shift (أولاً قبل أي شيء)
+      if (betweenEmployee && empId === String(betweenEmployee.id)) {
+        // Between تحصل على OFF يوم الـ OFF الأسبوعي فقط
+        if (weekOffMap.get(empId) === dateISO) {
+          symbol = OFF;
+        } else if (vacationSet.has(`${empId}_${dateISO}`)) {
+          symbol = VAC;
+        } else {
+          symbol = BETWEEN;
+        }
+      }
+      // 2. إجازة V
+      else if (vacationSet.has(`${empId}_${dateISO}`)) {
         symbol = VAC;
       }
-      // 2. OFF الأسبوعي
+      // 3. OFF الأسبوعي
       else if (weekOffMap.get(empId) === dateISO) {
         symbol = OFF;
       }
-      // 3. موظفة Between Shift
-      else if (betweenEmployee && empId === String(betweenEmployee.id)) {
-        symbol = BETWEEN;
-      }
-      // 4. شفت صباح
+      // 4. شفت صباح (ضمن التغطية)
       else if (selectedMorningIds.has(empId)) {
         symbol = getShiftSymbol(emp, "Morning");
       }
-      // 5. شفت مساء
+      // 5. شفت مساء (ضمن التغطية)
       else if (selectedEveningIds.has(empId)) {
         symbol = getShiftSymbol(emp, "Evening");
       }
-      // 6. موظفة غير مختارة للتغطية (لا تعمل هذا اليوم)
+      // 6. موظفة لها شفت أسبوعي لكن ليست ضمن التغطية اليومية
       else {
-        // هذه الموظفة ليست ضمن التغطية المطلوبة
-        // لكن لا نعطيها OFF إضافي - تبقى بدون شفت
         const shift = weekShiftMap.get(empId);
         if (shift) {
+          // تبقى بشفتها الأسبوعي (زائدة عن التغطية)
           symbol = getShiftSymbol(emp, shift);
         } else {
-          symbol = OFF;
+          // موظفة بدون شفت محدد - يجب أن يكون لها شفت!
+          console.error(`[ERROR] موظفة بدون شفت: ${emp.name} (${empId}) في ${dateISO}`);
+          // Fallback: تعيين شفت بناءً على الأسبوع
+          symbol = weekNum % 2 === 1 ? getShiftSymbol(emp, "Morning") : getShiftSymbol(emp, "Evening");
         }
       }
       
