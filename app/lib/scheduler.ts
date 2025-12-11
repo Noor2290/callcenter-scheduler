@@ -327,8 +327,13 @@ export async function generateSchedule({
   
   // Tooq دائماً مسائية في كل الأسابيع
   if (tooqEmployee) {
+    const tooqId = String(tooqEmployee.id);
+    // إضافة Tooq إلى empWeeklyShift إذا لم تكن موجودة
+    if (!empWeeklyShift.has(tooqId)) {
+      empWeeklyShift.set(tooqId, new Map());
+    }
     for (const weekNum of weeks) {
-      empWeeklyShift.get(TOOQ_ID)!.set(weekNum, "Evening");
+      empWeeklyShift.get(tooqId)!.set(weekNum, "Evening");
     }
   }
   
@@ -338,7 +343,7 @@ export async function generateSchedule({
     
     // Tooq دائماً مسائية
     if (tooqEmployee) {
-      shiftMap.set(TOOQ_ID, "Evening");
+      shiftMap.set(String(tooqEmployee.id), "Evening");
     }
     
     // ═══════════════════════════════════════════════════════════════════
