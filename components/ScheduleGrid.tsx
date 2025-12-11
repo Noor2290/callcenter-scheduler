@@ -255,14 +255,14 @@ export default function ScheduleGrid() {
       });
       const json = await res.json();
       if (!res.ok || json.error) {
-        setMsg(json.error || 'فشل الاستيراد');
+        setMsg('❌ ' + (json.error || 'فشل الاستيراد'));
         return;
       }
-      setMsg('✅ تم الاستيراد بنجاح');
-      // ❌ لا نحفظ تلقائياً - فقط نعرض
-      loadSavedSchedule();  // نحمّل ما تم استيراده للعرض فقط
+      // تحميل الجدول المستورد وعرضه
+      loadSavedSchedule();
+      setMsg(`✅ تم استيراد الجدول بنجاح (${json.imported} خلية) - ${json.year}/${json.month}`);
     } catch (e: any) {
-      setMsg(e?.message || 'فشل الاستيراد');
+      setMsg('❌ ' + (e?.message || 'فشل الاستيراد'));
     } finally {
       setIsImporting(false);
     }

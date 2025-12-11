@@ -62,7 +62,6 @@ export async function POST(req: NextRequest) {
     if (eErr) throw eErr;
     const byCode = new Map<string, string>();
     const byName = new Map<string, string>();
-    const idToCode = new Map<string, string>();
     const norm = (s: any) => String(s ?? '')
       .replace(/[\u200E\u200F\u202A-\u202E]/g, '') // strip RTL/LTR markers
       .replace(/\s+/g, ' ')
@@ -72,14 +71,13 @@ export async function POST(req: NextRequest) {
       const codeStr = e.code != null ? String(e.code).trim() : '';
       if (codeStr) byCode.set(codeStr, e.id);
       if ((e as any).name) byName.set(norm((e as any).name), e.id);
-      if (e.id && codeStr) idToCode.set(e.id, codeStr);
     }
 
     // Determine month days
     const daysInMonth = new Date(year, month, 0).getDate();
 
     // Parse grid: rows with name in col1 and code (ID) in col2, then day columns start at 3
-    const ALWAYS_EVENING_CODE = '3979';
+    // ⚠️ استيراد البيانات كما هي بالضبط بدون أي تعديل
     const rows: { employee_id: string; date: string; symbol: string; code: string }[] = [];
     for (let r = 1; r <= ws.rowCount; r++) {
       const row = ws.getRow(r);
@@ -95,13 +93,8 @@ export async function POST(req: NextRequest) {
       for (let d = 1; d <= daysInMonth; d++) {
         const c = 2 + d;
         const v = row.getCell(c).value as any;
-        let symbol = (typeof v === 'string' ? v : (typeof v === 'number' ? String(v) : '')).toString().trim().toUpperCase();
-        // Force Tooq Almalki to Evening on import as well (match by employee CODE)
-        if (idToCode.get(empId) === ALWAYS_EVENING_CODE) {
-          if (symbol && symbol !== 'O' && symbol !== 'V' && symbol !== 'B') {
-            if (symbol.startsWith('M')) symbol = 'EA1';
-          }
-        }
+        // استيراد القيمة كما هي بالضبط بدون أي تعديل
+        const symbol = (typeof v === 'string' ? v : (typeof v === 'number' ? String(v) : '')).toString().trim().toUpperCase();
         const date = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
         rows.push({ employee_id: empId, date, symbol, code: symbol });
       }
