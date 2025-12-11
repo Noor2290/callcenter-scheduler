@@ -517,8 +517,14 @@ export async function generateSchedule({
         } else if (shift === "Evening") {
           symbol = getShiftSymbol(emp, "Evening");
         } else {
-          // shift === null → موظفة زائدة عن التغطية = خلية فارغة
-          symbol = "";
+          // shift === null → موظفة زائدة عن التغطية
+          // نعطيها شفتها الأسبوعي من empMorningWeeks
+          const morningWeeks = empMorningWeeks.get(empId) || [];
+          if (morningWeeks.includes(weekNum)) {
+            symbol = getShiftSymbol(emp, "Morning");
+          } else {
+            symbol = getShiftSymbol(emp, "Evening");
+          }
         }
       }
       
