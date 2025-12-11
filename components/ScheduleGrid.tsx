@@ -182,9 +182,63 @@ export default function ScheduleGrid() {
     }
   }
 
-  function exportExcel() {
-    if (!settings.year || !settings.month) { setMsg('Set Year/Month in Settings first'); return; }
-    window.location.href = `/api/schedule/export/${settings.year}/${settings.month}`;
+  // تصدير الجدول المعروض حالياً (وليس المحفوظ في DB)
+  async function exportExcel() {
+    if (!settings.year || !settings.month) { 
+      setMsg('الرجاء تحديد السنة والشهر أولاً'); 
+      return; 
+    }
+    if (!data || !grid) {
+      setMsg('❌ لا يوجد جدول للتصدير');
+      return;
+    }
+    
+    setMsg('جاري تصدير الجدول المعروض...');
+    
+    try {
+      // تحويل الـ grid المعروض إلى assignments
+      const assignments: Assignment[] = [];
+      for (const empId of Object.keys(grid)) {
+        for (const date of Object.keys(grid[empId] || {})) {
+          const symbol = grid[empId][date];
+          if (symbol) {
+            assignments.push({ employee_id: empId, date, symbol });
+          }
+        }
+      }
+      
+      // إرسال الجدول المعروض للتصدير
+      const res = await fetch('/api/schedule/export-current', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          year: settings.year,
+          month: settings.month,
+          employees: data.employees,
+          assignments
+        })
+      });
+      
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'فشل التصدير');
+      }
+      
+      // تحميل الملف
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `schedule_${settings.year}_${String(settings.month).padStart(2, '0')}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+      setMsg('✅ تم تصدير الجدول المعروض بنجاح');
+    } catch (err: any) {
+      setMsg('❌ خطأ في التصدير: ' + (err.message || 'غير معروف'));
+    }
   }
 
   async function importExcel(file: File) {
