@@ -1,9 +1,9 @@
 // ═══════════════════════════════════════════════════════════════════════════
-//  GENERATE SCHEDULE — v11.0 (FINAL - EXACT IMPLEMENTATION)
+//  GENERATE SCHEDULE — v12.0 (PREVIEW + RANDOM SEED)
 //  
 //  ❗ هذا الملف يتبع التعليمات الرئيسية فقط - لا منطق قديم
 //  
-//  📌 التغطية من الإعدادات فقط:
+//  📌 التغطية من الإعدادات فقط (بدون defaults):
 //     - Morning Coverage = بالضبط العدد المحدد (لا زيادة، لا نقصان)
 //     - Evening Coverage = بالضبط العدد المحدد (لا زيادة، لا نقصان)
 //  
@@ -13,20 +13,25 @@
 //  
 //  📌 قواعد الإجازات:
 //     - الجمعة: OFF للجميع
-//     - مروة: السبت OFF دائماً
+//     - مروة (Marwa Alrehaili): السبت OFF دائماً
 //     - كل موظفة: OFF واحد فقط أسبوعياً
 //     - حد أقصى 2 OFF في اليوم (عدا الجمعة)
 //     - لا OFF إضافي أبداً
+//     - طلبات OFF/V المسبقة تُحترم
 //  
 //  📌 Between Shift:
 //     - إذا ON: للموظفة المحددة فقط
-//     - إذا OFF: لا يستخدم
+//     - إذا OFF: لا يستخدم نهائياً
 //  
-//  📌 الشفتات المسموحة:
+//  📌 الشفتات المسموحة فقط:
 //     صباح: MA1, MA2, M2, PT4
 //     مساء: EA1, E5, E2, MA4, PT5
 //     ليل: MA3
 //     إجازة: O, V
+//  
+//  📌 وضع Preview:
+//     - preview=true: يولّد جدول بدون حفظ
+//     - seed عشوائي: كل ضغطة "توليد" تعطي نتيجة مختلفة
 // ═══════════════════════════════════════════════════════════════════════════
 
 import {
@@ -59,8 +64,28 @@ const EVENING_SHIFTS: Record<string, string> = {
   Trainee: "E2"
 };
 
-const MARWA_ID = "3864";
+const MARWA_NAME = "Marwa Alrehaili"; // اسم مروة للبحث
 const MAX_OFF_PER_DAY = 2;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SEEDED RANDOM - لتوليد جداول مختلفة مع كل seed
+// ═══════════════════════════════════════════════════════════════════════════
+function seededRandom(seed: number): () => number {
+  return function() {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+}
+
+function shuffleWithSeed<T>(arr: T[], seed: number): T[] {
+  const result = [...arr];
+  const random = seededRandom(seed);
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -115,15 +140,24 @@ function getShiftSymbol(emp: Employee, shiftType: ShiftType): string {
 // ═══════════════════════════════════════════════════════════════════════════
 export async function generateSchedule({
   year,
-  month
+  month,
+  preview = false,
+  seed
 }: {
   year: number;
   month: number;
+  preview?: boolean;  // true = لا يحفظ في DB
+  seed?: number;      // seed عشوائي لتوليد جداول مختلفة
 }) {
   const sb = supabaseServer();
   
+  // إذا لم يتم تمرير seed، نستخدم وقت عشوائي
+  const actualSeed = seed ?? Date.now();
+  
   console.log(`\n${'═'.repeat(60)}`);
-  console.log(`[SCHEDULER v11] إنشاء جدول ${year}-${month}`);
+  console.log(`[SCHEDULER v12] إنشاء جدول ${year}-${month}`);
+  console.log(`[MODE] ${preview ? 'PREVIEW (بدون حفظ)' : 'SAVE (حفظ في DB)'}`);
+  console.log(`[SEED] ${actualSeed}`);
   console.log(`${'═'.repeat(60)}\n`);
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -221,14 +255,22 @@ export async function generateSchedule({
   
   console.log(`\n[3] توزيع الشفتات الأسبوعية...`);
   
-  // ترتيب الموظفات حسب ID للثبات
-  const sortedEmployees = [...regularEmployees].sort((a, b) => 
-    String(a.id).localeCompare(String(b.id))
+  // البحث عن مروة بالاسم
+  const marwaEmployee = allEmployees.find(e => 
+    e.name.toLowerCase().includes('marwa') || 
+    e.name.includes('مروة')
   );
+  const marwaId = marwaEmployee ? String(marwaEmployee.id) : null;
+  if (marwaEmployee) {
+    console.log(`    - مروة: ${marwaEmployee.name} (ID: ${marwaId})`);
+  }
+  
+  // خلط الموظفات باستخدام seed لتوليد توزيعات مختلفة
+  const shuffledEmployees = shuffleWithSeed(regularEmployees, actualSeed);
   
   // تقسيم الموظفات: أول coverageMorning للصباح، الباقي للمساء
-  const morningGroup = sortedEmployees.slice(0, settings.coverageMorning);
-  const eveningGroup = sortedEmployees.slice(settings.coverageMorning, settings.coverageMorning + settings.coverageEvening);
+  const morningGroup = shuffledEmployees.slice(0, settings.coverageMorning);
+  const eveningGroup = shuffledEmployees.slice(settings.coverageMorning, settings.coverageMorning + settings.coverageEvening);
   
   console.log(`    - مجموعة الصباح: ${morningGroup.length} موظفة`);
   console.log(`    - مجموعة المساء: ${eveningGroup.length} موظفة`);
@@ -323,7 +365,7 @@ export async function generateSchedule({
       if (hasVacation) continue;
       
       // 3. مروة: السبت OFF دائماً
-      if (empId === MARWA_ID) {
+      if (marwaId && empId === marwaId) {
         const saturday = workDays.find(d => getDay(d) === 6);
         if (saturday) {
           const dateISO = format(saturday, "yyyy-MM-dd");
@@ -505,28 +547,51 @@ export async function generateSchedule({
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // الخطوة 7: الحفظ في قاعدة البيانات
+  // الخطوة 7: الحفظ في قاعدة البيانات (فقط إذا لم يكن preview)
   // ═══════════════════════════════════════════════════════════════════════
   
-  console.log(`\n[7] الحفظ في قاعدة البيانات...`);
-  
-  await sb.from("assignments").delete().eq("month_id", monthRow.id);
-  const { error: insertErr } = await sb.from("assignments").insert(rows);
-  
-  if (insertErr) throw insertErr;
-  console.log(`    ✅ تم حفظ ${rows.length} سجل!`);
+  if (!preview) {
+    console.log(`\n[7] الحفظ في قاعدة البيانات...`);
+    
+    await sb.from("assignments").delete().eq("month_id", monthRow.id);
+    const { error: insertErr } = await sb.from("assignments").insert(rows);
+    
+    if (insertErr) throw insertErr;
+    console.log(`    ✅ تم حفظ ${rows.length} سجل!`);
+  } else {
+    console.log(`\n[7] وضع Preview - لم يتم الحفظ في DB`);
+  }
+
+  // تحويل البيانات لصيغة مناسبة للعرض
+  const assignmentsForDisplay = rows.map(r => ({
+    employee_id: r.employee_id,
+    date: r.date,
+    symbol: r.symbol
+  }));
 
   return {
     ok: true,
-    debug: {
+    preview,
+    seed: actualSeed,
+    month: {
+      id: monthRow.id,
       year,
-      month,
-      employees: allEmployees.length,
+      month
+    },
+    employees: allEmployees.map(e => ({
+      id: String(e.id),
+      name: e.name,
+      code: (e as any).code || null
+    })),
+    assignments: assignmentsForDisplay,
+    debug: {
+      totalEmployees: allEmployees.length,
       coverageMorning: settings.coverageMorning,
       coverageEvening: settings.coverageEvening,
       useBetweenShift: settings.useBetweenShift,
+      betweenEmployee: betweenEmployee?.name || null,
       weeks: weeks.length,
-      assignments: rows.length,
+      totalAssignments: rows.length,
       issues
     }
   };

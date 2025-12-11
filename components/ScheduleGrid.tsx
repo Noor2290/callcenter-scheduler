@@ -11,6 +11,14 @@ type MonthData = {
   month: { id: string; year: number; month: number };
   employees: Employee[];
   assignments: Assignment[];
+  preview?: boolean;
+  seed?: number;
+  debug?: {
+    coverageMorning: number;
+    coverageEvening: number;
+    totalEmployees: number;
+    issues: number;
+  };
 };
 
 function toISO(y: number, m: number, d: number) {
@@ -26,6 +34,7 @@ export default function ScheduleGrid() {
   const [msg, setMsg] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isPreviewMode, setIsPreviewMode] = useState(true); // وضع المعاينة افتراضياً
 
   // load settings for year/month
   useEffect(() => {
@@ -39,41 +48,30 @@ export default function ScheduleGrid() {
     return Number(format(end, 'd'));
   }, [settings.year, settings.month]);
 
-  function loadMonth() {
-    if (!settings.year || !settings.month) return;
-    startTransition(async () => {
-      const res = await fetch(`/api/schedule/${settings.year}/${settings.month}`);
-      const json = await res.json();
-      if (!res.ok) { setMsg(json.error || 'Failed to load schedule'); return; }
-      setData(json);
-      // Build grid map
-      const g: Record<string, Record<string, string>> = {};
-      for (const emp of json.employees) {
-        g[emp.id] = {};
-      }
-      for (const a of json.assignments) {
-        if (!g[a.employee_id]) g[a.employee_id] = {};
-        g[a.employee_id][a.date] = a.symbol;
-      }
-      setGrid(g);
-      setGridOriginal(JSON.parse(JSON.stringify(g)));
-    });
+  // تحديث الـ grid من البيانات
+  function updateGridFromData(json: MonthData) {
+    setData(json);
+    const g: Record<string, Record<string, string>> = {};
+    for (const emp of json.employees) {
+      g[emp.id] = {};
+    }
+    for (const a of json.assignments) {
+      if (!g[a.employee_id]) g[a.employee_id] = {};
+      g[a.employee_id][a.date] = a.symbol;
+    }
+    setGrid(g);
+    setGridOriginal(JSON.parse(JSON.stringify(g)));
   }
 
-  useEffect(() => { loadMonth(); }, [settings.year, settings.month]);
-
-  async function generate() {
-    console.log('Generate clicked! Settings:', settings);
-    
-    if (!settings.year || !settings.month) { 
-      console.log('Missing year or month!');
-      setMsg('الرجاء تحديد السنة والشهر أولاً'); 
-      return; 
+  // توليد جدول جديد (preview mode)
+  async function generateNewSchedule() {
+    if (!settings.year || !settings.month) {
+      setMsg('الرجاء تحديد السنة والشهر أولاً');
+      return;
     }
     
-    console.log('Starting generation for:', settings.year, settings.month);
     setIsGenerating(true);
-    setMsg('جاري إنشاء جدول جديد...');
+    setMsg('جاري توليد جدول جديد...');
     
     try {
       const res = await fetch('/api/schedule/generate', {
@@ -81,31 +79,83 @@ export default function ScheduleGrid() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           year: settings.year, 
-          month: settings.month
+          month: settings.month,
+          preview: true,  // لا يحفظ في DB
+          seed: Date.now()  // seed عشوائي جديد
         })
       });
       
-      const data = await res.json();
-      console.log('Generate response:', data);
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
       
-      if (data.error) throw new Error(data.error);
+      updateGridFromData(json);
+      setIsPreviewMode(true);
       
-      // إعادة تحميل الجدول
-      loadMonth();
-      
-      // Build detailed message
-      const d = data.debug || {};
-      const morningInfo = d.coverageMorningSource === 'database' 
-        ? `صباح: ${d.coverageMorning} ✓` 
-        : `صباح: ${d.coverageMorning} (افتراضي)`;
-      const eveningInfo = d.coverageEveningSource === 'database'
-        ? `مساء: ${d.coverageEvening} ✓`
-        : `مساء: ${d.coverageEvening} (افتراضي)`;
-      
-      setMsg(`تم إنشاء الجدول بنجاح! (موظفات: ${d.totalEmployees || '?'}, ${morningInfo}, ${eveningInfo})`);
+      const d = json.debug || {};
+      setMsg(`✅ تم توليد جدول جديد (صباح: ${d.coverageMorning}, مساء: ${d.coverageEvening}) - اضغط "حفظ" للاعتماد`);
     } catch (err: any) {
-      console.error('Error generating schedule:', err);
-      setMsg('حدث خطأ أثناء إنشاء الجدول: ' + (err.message || 'غير معروف'));
+      setMsg('❌ خطأ: ' + (err.message || 'غير معروف'));
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  // تحميل الجدول المحفوظ من DB
+  function loadSavedSchedule() {
+    if (!settings.year || !settings.month) return;
+    startTransition(async () => {
+      const res = await fetch(`/api/schedule/${settings.year}/${settings.month}`);
+      const json = await res.json();
+      if (!res.ok) { 
+        setMsg(json.error || 'لا يوجد جدول محفوظ'); 
+        return; 
+      }
+      updateGridFromData(json);
+      setIsPreviewMode(false);
+      setMsg('تم تحميل الجدول المحفوظ');
+    });
+  }
+
+  // عند فتح الصفحة: توليد جدول جديد تلقائياً
+  useEffect(() => { 
+    if (settings.year && settings.month) {
+      generateNewSchedule();
+    }
+  }, [settings.year, settings.month]);
+
+  // حفظ الجدول الحالي في DB
+  async function saveScheduleToDb() {
+    if (!settings.year || !settings.month) {
+      setMsg('الرجاء تحديد السنة والشهر أولاً');
+      return;
+    }
+    
+    setIsGenerating(true);
+    setMsg('جاري حفظ الجدول...');
+    
+    try {
+      // إعادة توليد مع preview=false للحفظ
+      const res = await fetch('/api/schedule/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          year: settings.year, 
+          month: settings.month,
+          preview: false,  // حفظ في DB
+          seed: data?.seed || Date.now()  // نفس الـ seed للحفاظ على نفس التوزيع
+        })
+      });
+      
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      
+      updateGridFromData(json);
+      setIsPreviewMode(false);
+      
+      const d = json.debug || {};
+      setMsg(`✅ تم حفظ الجدول! (صباح: ${d.coverageMorning}, مساء: ${d.coverageEvening})`);
+    } catch (err: any) {
+      setMsg('❌ خطأ في الحفظ: ' + (err.message || 'غير معروف'));
     } finally {
       setIsGenerating(false);
     }
@@ -134,7 +184,7 @@ export default function ScheduleGrid() {
         return;
       }
       setMsg('تم الاستيراد بنجاح');
-      loadMonth();
+      loadSavedSchedule();
     } catch (e: any) {
       setMsg(e?.message || 'فشل الاستيراد');
     } finally {
@@ -167,7 +217,7 @@ export default function ScheduleGrid() {
       const json = await res.json();
       if (!res.ok) { setMsg(json.error || 'فشل الحفظ'); return; }
       setMsg('تم الحفظ');
-      loadMonth();
+      loadSavedSchedule();
     });
   }
 
@@ -188,17 +238,32 @@ export default function ScheduleGrid() {
 
   return (
     <div className="space-y-4">
+      {/* معلومات الجدول */}
       {data && (
-        <div className="text-xs text-gray-600">
-          الشهر: {data.month.year}-{String(data.month.month).padStart(2,'0')} • الموظفات: {data.employees.length} • التعيينات: {data.assignments.length}
-          {data.assignments.length === 0 && (
-            <span className="text-rose-600 ml-2">لا توجد تعيينات لهذا الشهر. اضغط "توليد الجدول" بعد ضبط السنة/الشهر.</span>
+        <div className="text-xs text-gray-600 flex items-center gap-4">
+          <span>الشهر: {data.month.year}-{String(data.month.month).padStart(2,'0')}</span>
+          <span>الموظفات: {data.employees.length}</span>
+          <span>التعيينات: {data.assignments.length}</span>
+          {data.debug && (
+            <>
+              <span className="text-yellow-600">صباح: {data.debug.coverageMorning}</span>
+              <span className="text-indigo-600">مساء: {data.debug.coverageEvening}</span>
+            </>
+          )}
+          {isPreviewMode && (
+            <span className="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded text-xs">معاينة - غير محفوظ</span>
+          )}
+          {!isPreviewMode && (
+            <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded text-xs">محفوظ</span>
           )}
         </div>
       )}
-      <div className="flex gap-2 items-center">
+      
+      {/* أزرار التحكم */}
+      <div className="flex gap-2 items-center flex-wrap">
+        {/* زر توليد جدول جديد */}
         <button 
-          onClick={generate} 
+          onClick={generateNewSchedule} 
           className="px-4 py-2 bg-indigo-600 text-white rounded disabled:opacity-60 flex items-center gap-2" 
           disabled={isPending || isGenerating}
         >
@@ -211,11 +276,35 @@ export default function ScheduleGrid() {
               جاري التوليد...
             </>
           ) : (
-            'توليد جدول'
+            '🔄 توليد جدول جديد'
           )}
         </button>
+        
+        {/* زر حفظ الجدول */}
+        <button 
+          onClick={saveScheduleToDb} 
+          className="px-4 py-2 bg-green-600 text-white rounded disabled:opacity-60" 
+          disabled={isPending || isGenerating || !isPreviewMode}
+        >
+          💾 حفظ الجدول
+        </button>
+        
+        {/* زر تحميل الجدول المحفوظ */}
+        <button 
+          onClick={loadSavedSchedule} 
+          className="px-4 py-2 bg-gray-600 text-white rounded disabled:opacity-60" 
+          disabled={isPending}
+        >
+          📂 تحميل المحفوظ
+        </button>
+        
+        {/* زر حفظ التعديلات */}
         <button onClick={saveChanges} className="px-4 py-2 bg-teal-600 text-white rounded disabled:opacity-60" disabled={isPending}>حفظ التعديلات</button>
+        
+        {/* زر تصدير Excel */}
         <button onClick={exportExcel} className="px-4 py-2 bg-emerald-600 text-white rounded">تصدير Excel</button>
+        
+        {/* زر استيراد Excel */}
         <label className="px-4 py-2 bg-sky-600 text-white rounded cursor-pointer disabled:opacity-60">
           {isImporting ? 'جاري الاستيراد...' : 'استيراد من Excel'}
           <input
@@ -226,14 +315,19 @@ export default function ScheduleGrid() {
               const file = e.target.files?.[0];
               if (file) {
                 importExcel(file);
-                // allow selecting the same file again later
                 e.target.value = '';
               }
             }}
           />
         </label>
       </div>
-      {msg && <div className="text-sm text-red-600">{msg}</div>}
+      
+      {/* رسالة الحالة */}
+      {msg && (
+        <div className={`text-sm p-2 rounded ${msg.startsWith('✅') ? 'bg-green-100 text-green-800' : msg.startsWith('❌') ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'}`}>
+          {msg}
+        </div>
+      )}
 
       {!data ? (
         <div className="text-sm text-gray-500">Load or set settings to view schedule…</div>
