@@ -86,71 +86,35 @@ export async function POST(req: NextRequest) {
     const daysInMonth = new Date(year, month, 0).getDate();
 
     // ═══════════════════════════════════════════════════════════════════════
-    // البحث عن صف الأيام وتحديد بداية البيانات
+    // البحث عن أول صف يحتوي على بيانات موظفة (بدلاً من البحث عن العناوين)
     // ═══════════════════════════════════════════════════════════════════════
-    let headerRow = -1;
-    let nameCol = 1;  // العمود A = الاسم
-    let idCol = 2;    // العمود B = ID
-    let firstDayCol = 3; // العمود C = أول يوم
+    let firstDataRow = -1;
+    const nameCol = 1;  // العمود A = الاسم
+    const idCol = 2;    // العمود B = ID
+    const firstDayCol = 3; // العمود C = أول يوم
     
-    // البحث عن صف العناوين (يحتوي على NAME أو DAYS أو أرقام 1,2,3...)
-    for (let r = 1; r <= Math.min(ws.rowCount, 20); r++) {
+    // البحث عن أول صف يحتوي على موظفة معروفة
+    for (let r = 1; r <= ws.rowCount; r++) {
       const row = ws.getRow(r);
+      const nameVal = row.getCell(nameCol).value;
+      const codeVal = row.getCell(idCol).value;
       
-      // التحقق من وجود كلمة NAME أو DAYS في أي خلية
-      for (let c = 1; c <= Math.min(ws.columnCount, 5); c++) {
-        const v = String(row.getCell(c).value ?? '').toLowerCase();
-        if (v.includes('name') || v.includes('days') || v.includes('اسم')) {
-          headerRow = r;
-          nameCol = c;
-          
-          // البحث عن عمود ID (الخلية التالية أو التي تحتوي على ID)
-          for (let cc = c; cc <= Math.min(ws.columnCount, c + 3); cc++) {
-            const vv = String(row.getCell(cc).value ?? '').toLowerCase();
-            if (vv.includes('id') || vv === 'id') {
-              idCol = cc;
-              break;
-            }
-          }
-          if (idCol <= nameCol) idCol = nameCol + 1;
-          break;
-        }
-      }
-      if (headerRow > 0) break;
+      const nameStr = norm(nameVal);
+      const codeStr = typeof codeVal === 'number' ? String(codeVal) : String(codeVal || '').trim();
       
-      // أو البحث عن صف يحتوي على أرقام 1, 2, 3 (أيام الشهر)
-      let hasNumbers = 0;
-      for (let c = 3; c <= Math.min(ws.columnCount, 10); c++) {
-        const v = row.getCell(c).value;
-        if (typeof v === 'number' && v >= 1 && v <= 31) hasNumbers++;
-      }
-      if (hasNumbers >= 3) {
-        headerRow = r;
+      // إذا وجدنا موظفة معروفة بالكود أو الاسم
+      if (byCode.has(codeStr) || byName.has(nameStr)) {
+        firstDataRow = r;
+        console.log(`[IMPORT] Found first employee at row ${r}: name="${nameVal}", code="${codeStr}"`);
         break;
       }
     }
     
-    // إذا لم نجد صف العناوين، نفترض أنه الصف 7 أو 8
-    if (headerRow < 0) {
-      // البحث عن أول صف يحتوي على اسم موظفة معروفة
-      for (let r = 1; r <= Math.min(ws.rowCount, 15); r++) {
-        const row = ws.getRow(r);
-        const nameVal = row.getCell(1).value;
-        const codeVal = row.getCell(2).value;
-        const nameStr = norm(nameVal);
-        const codeStr = typeof codeVal === 'number' ? String(codeVal) : String(codeVal || '').trim();
-        
-        if (byCode.has(codeStr) || byName.has(nameStr)) {
-          headerRow = r - 1; // الصف السابق هو العناوين
-          break;
-        }
-      }
+    if (firstDataRow < 0) {
+      return NextResponse.json({ error: 'لم يتم العثور على بيانات موظفات في الملف' }, { status: 400 });
     }
     
-    if (headerRow < 0) headerRow = 7;
-    firstDayCol = Math.max(nameCol, idCol) + 1;
-    
-    console.log(`[IMPORT] Header row: ${headerRow}, Name col: ${nameCol}, ID col: ${idCol}, First day col: ${firstDayCol}`);
+    console.log(`[IMPORT] First data row: ${firstDataRow}, Name col: ${nameCol}, ID col: ${idCol}, First day col: ${firstDayCol}`);
     
     // ═══════════════════════════════════════════════════════════════════════
     // قراءة البيانات من الصفوف
@@ -158,7 +122,7 @@ export async function POST(req: NextRequest) {
     const rows: { employee_id: string; date: string; symbol: string; code: string }[] = [];
     let importedEmployees = 0;
     
-    for (let r = headerRow + 1; r <= ws.rowCount; r++) {
+    for (let r = firstDataRow; r <= ws.rowCount; r++) {
       const row = ws.getRow(r);
       
       // قراءة الاسم والكود
