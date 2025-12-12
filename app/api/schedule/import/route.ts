@@ -179,13 +179,17 @@ export async function POST(req: NextRequest) {
     }
     const uniqueRows = Array.from(dedupeMap.values());
 
-    // Replace assignments EXACTLY: first delete all for this month, then insert
+    // Replace assignments: delete old then upsert new
     await sb.from('assignments').delete().eq('month_id', monthRow.id);
+    
     if (uniqueRows.length > 0) {
       const BATCH = 500;
       for (let i = 0; i < uniqueRows.length; i += BATCH) {
         const chunk = uniqueRows.slice(i, i + BATCH).map((r) => ({ ...r, month_id: monthRow.id }));
-        const { error: insErr } = await sb.from('assignments').insert(chunk as any);
+        // استخدام upsert بدلاً من insert لتجنب خطأ duplicate key
+        const { error: insErr } = await sb
+          .from('assignments')
+          .upsert(chunk as any, { onConflict: 'employee_id,date' });
         if (insErr) throw insErr;
       }
     }
