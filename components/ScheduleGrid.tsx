@@ -230,18 +230,23 @@ export default function ScheduleGrid() {
     }
   }
 
-  // تصدير الجدول المعروض حالياً (وليس المحفوظ في DB)
+  // تصدير الجدول المعروض حالياً (وليس المحفوظ في DB أو الإعدادات)
   async function exportExcel() {
-    if (!settings.year || !settings.month) { 
-      setMsg('الرجاء تحديد السنة والشهر أولاً'); 
-      return; 
-    }
-    if (!data || !grid) {
+    // ✅ استخدام الشهر/السنة من الجدول المعروض (data) وليس من الإعدادات
+    if (!data || !data.month) {
       setMsg('❌ لا يوجد جدول للتصدير');
       return;
     }
+    if (Object.keys(grid).length === 0) {
+      setMsg('❌ الجدول فارغ');
+      return;
+    }
     
-    setMsg('جاري تصدير الجدول المعروض...');
+    // استخدام الشهر والسنة من الجدول المعروض
+    const displayedYear = data.month.year;
+    const displayedMonth = data.month.month;
+    
+    setMsg(`جاري تصدير جدول ${getMonthName(displayedMonth)} ${displayedYear}...`);
     
     try {
       // تحويل الـ grid المعروض إلى assignments
@@ -255,13 +260,13 @@ export default function ScheduleGrid() {
         }
       }
       
-      // إرسال الجدول المعروض للتصدير
+      // إرسال الجدول المعروض للتصدير (باستخدام الشهر/السنة من الجدول المعروض)
       const res = await fetch('/api/schedule/export-current', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          year: settings.year,
-          month: settings.month,
+          year: displayedYear,
+          month: displayedMonth,
           employees: data.employees,
           assignments
         })
@@ -272,18 +277,18 @@ export default function ScheduleGrid() {
         throw new Error(err.error || 'فشل التصدير');
       }
       
-      // تحميل الملف
+      // تحميل الملف باسم الشهر المعروض
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `schedule_${settings.year}_${String(settings.month).padStart(2, '0')}.xlsx`;
+      a.download = `schedule_${displayedYear}_${String(displayedMonth).padStart(2, '0')}.xlsx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
       
-      setMsg('✅ تم تصدير الجدول المعروض بنجاح');
+      setMsg(`✅ تم تصدير جدول ${getMonthName(displayedMonth)} ${displayedYear} بنجاح`);
     } catch (err: any) {
       setMsg('❌ خطأ في التصدير: ' + (err.message || 'غير معروف'));
     }
