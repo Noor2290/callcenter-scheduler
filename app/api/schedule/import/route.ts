@@ -86,41 +86,40 @@ export async function POST(req: NextRequest) {
     const daysInMonth = new Date(year, month, 0).getDate();
 
     // ═══════════════════════════════════════════════════════════════════════
-    // البحث عن أول صف يحتوي على بيانات موظفة (بدلاً من البحث عن العناوين)
+    // البحث عن صف العناوين (NAME/ID) ثم البدء من الصف التالي
     // ═══════════════════════════════════════════════════════════════════════
-    let firstDataRow = -1;
+    let headerRow = -1;
     const nameCol = 1;  // العمود A = الاسم
     const idCol = 2;    // العمود B = ID
     const firstDayCol = 3; // العمود C = أول يوم
     
-    // البحث عن أول صف يحتوي على موظفة معروفة
-    for (let r = 1; r <= ws.rowCount; r++) {
+    // البحث عن صف العناوين (يحتوي على NAME أو DAYS أو ID)
+    for (let r = 1; r <= Math.min(ws.rowCount, 15); r++) {
       const row = ws.getRow(r);
-      const nameVal = row.getCell(nameCol).value;
-      const codeVal = row.getCell(idCol).value;
-      
-      const nameStr = norm(nameVal);
-      const codeStr = typeof codeVal === 'number' ? String(codeVal) : String(codeVal || '').trim();
-      
-      // إذا وجدنا موظفة معروفة بالكود أو الاسم
-      if (byCode.has(codeStr) || byName.has(nameStr)) {
-        firstDataRow = r;
-        console.log(`[IMPORT] Found first employee at row ${r}: name="${nameVal}", code="${codeStr}"`);
-        break;
+      for (let c = 1; c <= Math.min(ws.columnCount, 5); c++) {
+        const v = String(row.getCell(c).value ?? '').toLowerCase();
+        if (v.includes('name') || v.includes('days') || v === 'id') {
+          headerRow = r;
+          console.log(`[IMPORT] Found header row at ${r}, cell value: "${v}"`);
+          break;
+        }
       }
+      if (headerRow > 0) break;
     }
     
-    if (firstDataRow < 0) {
-      return NextResponse.json({ error: 'لم يتم العثور على بيانات موظفات في الملف' }, { status: 400 });
-    }
+    // إذا لم نجد صف العناوين، نفترض أنه الصف 7
+    if (headerRow < 0) headerRow = 7;
     
-    console.log(`[IMPORT] First data row: ${firstDataRow}, Name col: ${nameCol}, ID col: ${idCol}, First day col: ${firstDayCol}`);
+    const firstDataRow = headerRow + 1;
+    console.log(`[IMPORT] Header row: ${headerRow}, First data row: ${firstDataRow}, Name col: ${nameCol}, ID col: ${idCol}`);
     
     // ═══════════════════════════════════════════════════════════════════════
     // قراءة البيانات من الصفوف
     // ═══════════════════════════════════════════════════════════════════════
     const rows: { employee_id: string; date: string; symbol: string; code: string }[] = [];
     let importedEmployees = 0;
+    
+    const skippedRows: string[] = [];
     
     for (let r = firstDataRow; r <= ws.rowCount; r++) {
       const row = ws.getRow(r);
@@ -129,20 +128,26 @@ export async function POST(req: NextRequest) {
       const nameVal = row.getCell(nameCol).value;
       const codeVal = row.getCell(idCol).value;
       
+      // تخطي الصفوف الفارغة
+      if (!nameVal && !codeVal) continue;
+      
       // تحويل الكود لنص
       const codeStr = typeof codeVal === 'number' ? String(codeVal) : String(codeVal || '').trim();
+      const nameStr = norm(nameVal);
       
       // البحث عن الموظفة بالكود أولاً
       let empId = byCode.get(codeStr);
       
       // إذا لم نجد بالكود، نبحث بالاسم
-      if (!empId) {
-        const nameStr = norm(nameVal);
-        if (nameStr) empId = byName.get(nameStr);
+      if (!empId && nameStr) {
+        empId = byName.get(nameStr);
       }
       
-      // تخطي الصفوف التي لا تطابق موظفة
-      if (!empId) continue;
+      // تسجيل الصفوف التي لم يتم التعرف عليها
+      if (!empId) {
+        skippedRows.push(`Row ${r}: name="${nameVal}", code="${codeStr}"`);
+        continue;
+      }
       
       importedEmployees++;
       
@@ -163,6 +168,9 @@ export async function POST(req: NextRequest) {
     }
     
     console.log(`[IMPORT] Found ${importedEmployees} employees, ${rows.length} assignments`);
+    if (skippedRows.length > 0) {
+      console.log(`[IMPORT] Skipped rows (not matched): ${skippedRows.join(', ')}`);
+    }
 
     // Dedupe rows to avoid duplicate key constraint violation
     const dedupeMap = new Map<string, typeof rows[0]>();
