@@ -345,40 +345,67 @@ export async function generateSchedule({
   }
   
   for (const weekNum of weeks) {
-    const shiftMap = new Map<string, ShiftType>();
-    weeklyShifts.set(weekNum, shiftMap);
-    
-    // Tooq دائماً مسائية
-    if (tooqEmployee) {
-      shiftMap.set(String(tooqEmployee.id), "Evening");
-    }
+  const shiftMap = new Map<string, ShiftType>();
+  weeklyShifts.set(weekNum, shiftMap);
 
-    // تعيين الشفتات بالتناوب الأسبوعي لكل موظفة في التناوب
-    for (const emp of rotatingEmployees) {
-      const empId = String(emp.id);
-
-      // قراءة آخر شفت (افتراضي مساء إذا لم يوجد)
-      const last = lastShiftType.get(empId) || "Evening";
-      const shift: ShiftType = last === "Morning" ? "Evening" : "Morning";
-
-      // تحديث آخر شفت
-      lastShiftType.set(empId, shift);
-
-      // حفظ الشفت لهذا الأسبوع
-      shiftMap.set(empId, shift);
-      empWeeklyShift.get(empId)!.set(weekNum, shift);
-    }
-
-    // حساب التغطية الفعلية (مع Tooq)
-    let morningCount = 0;
-    let eveningCount = 0;
-    for (const s of shiftMap.values()) {
-      if (s === "Morning") morningCount++;
-      else eveningCount++;
-    }
-    const actualEvening = eveningCount + (tooqEmployee ? 1 : 0);
-    console.log(`    - الأسبوع ${weekNum}: صباح=${morningCount}, مساء=${actualEvening} (مع Tooq)`);
+  // Tooq دائماً مسائية
+  if (tooqEmployee) {
+    shiftMap.set(String(tooqEmployee.id), "Evening");
   }
+
+  // تجهيز الموظفات القابلات للتناوب فقط (بدون الثابتات)
+  const weekEmployees = rotatingEmployees.map(e => String(e.id));
+
+  // حفظ آخر شفت لكل موظفة
+  const prevShifts: Record<string, ShiftType> = {};
+  for (const empId of weekEmployees) {
+    prevShifts[empId] = lastShiftType.get(empId) || "Evening";
+  }
+
+  // التناوب: عكس الشفت للأسبوع الجديد
+  let candidates = weekEmployees.map(empId => ({
+    empId,
+    nextShift: prevShifts[empId] === "Morning" ? "Evening" : "Morning" as ShiftType
+  }));
+
+  // توزيع حسب العدد المطلوب
+  let morningList = candidates.filter(c => c.nextShift === "Morning");
+  let eveningList = candidates.filter(c => c.nextShift === "Evening");
+
+  // إذا العدد غير كافٍ، نبدّل من القائمة الأخرى
+  if (morningList.length > settings.coverageMorning) {
+    // خذ فقط العدد المطلوب، والباقي مساء
+    const extra = morningList.splice(settings.coverageMorning);
+    eveningList = eveningList.concat(extra.map(c => ({ empId: c.empId, nextShift: "Evening" as ShiftType })));
+  } else if (morningList.length < settings.coverageMorning) {
+    // نكمل من المساء
+    const needed = settings.coverageMorning - morningList.length;
+    const toMove = eveningList.splice(0, needed);
+    morningList = morningList.concat(toMove.map(c => ({ empId: c.empId, nextShift: "Morning" as ShiftType })));
+  }
+
+  // الآن لدينا العدد الصحيح
+  for (const c of morningList) {
+    shiftMap.set(c.empId, "Morning");
+    empWeeklyShift.get(c.empId)!.set(weekNum, "Morning");
+    lastShiftType.set(c.empId, "Morning");
+  }
+  for (const c of eveningList) {
+    shiftMap.set(c.empId, "Evening");
+    empWeeklyShift.get(c.empId)!.set(weekNum, "Evening");
+    lastShiftType.set(c.empId, "Evening");
+  }
+
+  // حساب التغطية الفعلية (مع Tooq)
+  let morningCount = 0;
+  let eveningCount = 0;
+  for (const s of shiftMap.values()) {
+    if (s === "Morning") morningCount++;
+    else eveningCount++;
+  }
+  const actualEvening = eveningCount + (tooqEmployee ? 1 : 0);
+  console.log(`    - الأسبوع ${weekNum}: صباح=${morningCount}, مساء=${actualEvening} (مع Tooq)`);
+}
   
   // طباعة ملخص التوزيع النهائي (نمط أسبوع صباح/أسبوع مساء)
   console.log(`\n    📊 ملخص التوزيع النهائي (تناوب أسبوعي):`);
