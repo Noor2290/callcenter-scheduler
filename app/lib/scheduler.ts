@@ -120,13 +120,16 @@ interface DayAssignment {
 // HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════
 
-// حساب رقم الأسبوع (السبت = بداية الأسبوع)
-function getWeekNumber(date: Date, monthStart: Date): number {
-  const startDay = monthStart.getDay();
+// حساب رقم الأسبوع كتقسيم ثابت لأيام الشهر:
+// 1-7  => الأسبوع 1
+// 8-14 => الأسبوع 2
+// 15-21 => الأسبوع 3
+// 22-28 => الأسبوع 4
+// 29+ => الأسبوع 5
+// هذا يضمن أن كل 7 أيام متتالية تُعامل كأسبوع واحد في التناوب
+function getWeekNumber(date: Date, _monthStart: Date): number {
   const dayOfMonth = date.getDate();
-  // حساب الأسبوع بناءً على السبت كبداية
-  const adjustedDay = dayOfMonth + ((startDay + 1) % 7);
-  return Math.ceil(adjustedDay / 7);
+  return Math.floor((dayOfMonth - 1) / 7) + 1;
 }
 
 // الحصول على رمز الشفت حسب نوع الموظفة
