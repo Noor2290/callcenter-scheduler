@@ -107,13 +107,7 @@ export default function ScheduleGrid() {
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       
-      // تحقق من وجود بيانات جدول حقيقية
-      if (!json.employees || json.employees.length === 0 || !json.assignments || json.assignments.length === 0) {
-        setMsg('❌ لا يوجد بيانات للجدول (تأكد من الإعدادات والموظفات)');
-        setIsGenerating(false);
-        return;
-      }
-      // ✅ تحديث الجدول المعروض
+      // دائماً اعرض الجدول بعد التوليد حتى لو ناقص أو فيه تحذير
       updateGridFromData(json);
       setIsPreviewMode(true);
       
@@ -123,7 +117,11 @@ export default function ScheduleGrid() {
         seed: json.seed || newSeed
       };
       
-      setMsg(`✅ تم توليد جدول جديد`);
+      if (!json.employees || json.employees.length === 0 || !json.assignments || json.assignments.length === 0) {
+        setMsg('⚠️ تم التوليد لكن لا توجد بيانات كافية للجدول (راجع الإعدادات أو الموظفات)');
+      } else {
+        setMsg(`✅ تم توليد جدول جديد`);
+      }
     } catch (err: any) {
       setMsg('❌ خطأ: ' + (err.message || 'غير معروف'));
     } finally {
