@@ -650,7 +650,7 @@ export async function generateSchedule({
     for (const [day, count] of dayOffCount) {
       if (count > 0) offCounts[day] = count;
     }
-    console.log(`    - الأسبوع ${weekNum}: ${Object.entries(offCounts).map(([d, c]) => `${d}=${c}`).join(', ')}`);
+    console.log(`    - الأسبوع ${weekIndex}: ${Object.entries(offCounts).map(([d, c]) => `${d}=${c}`).join(', ')}`);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
