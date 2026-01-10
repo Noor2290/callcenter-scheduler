@@ -142,13 +142,8 @@ export default function ScheduleGrid() {
     });
   }
 
-  // عند فتح الصفحة: تحميل الجدول المحفوظ أولاً (إن وجد)، وإلا توليد جدول جديد
-  useEffect(() => { 
-    if (settings.year && settings.month) {
-      // محاولة تحميل الجدول المحفوظ أولاً
-      loadSavedScheduleOrGenerate();
-    }
-  }, [settings.year, settings.month]);
+  // عند فتح الصفحة: لا تحميل تلقائي للجدول المحفوظ ولا توليد تلقائي
+// المستخدم يختار بنفسه متى يولد أو يحمل المحفوظ
 
   // تحميل الجدول المحفوظ، وإذا لم يوجد يولد جدول جديد
   async function loadSavedScheduleOrGenerate() {
