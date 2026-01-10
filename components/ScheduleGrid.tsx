@@ -79,6 +79,14 @@ export default function ScheduleGrid() {
     setGridOriginal(JSON.parse(JSON.stringify(g)));
   }
 
+  // توليد جدول جديد تلقائياً عند أول تحميل (on mount)
+  useEffect(() => {
+    if (settings.year && settings.month) {
+      generateNewSchedule();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.year, settings.month]);
+
   // توليد جدول جديد (preview mode - لا يُحفظ في DB)
   async function generateNewSchedule() {
     if (!settings.year || !settings.month) {
