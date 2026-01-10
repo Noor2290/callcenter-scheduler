@@ -107,6 +107,12 @@ export default function ScheduleGrid() {
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       
+      // تحقق من وجود بيانات جدول حقيقية
+      if (!json.employees || json.employees.length === 0 || !json.assignments || json.assignments.length === 0) {
+        setMsg('❌ لا يوجد بيانات للجدول (تأكد من الإعدادات والموظفات)');
+        setIsGenerating(false);
+        return;
+      }
       // ✅ تحديث الجدول المعروض
       updateGridFromData(json);
       setIsPreviewMode(true);
