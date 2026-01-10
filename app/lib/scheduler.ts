@@ -120,16 +120,17 @@ interface DayAssignment {
 // HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════
 
-// حساب رقم الأسبوع كتقسيم ثابت لأيام الشهر:
-// 1-7  => الأسبوع 1
-// 8-14 => الأسبوع 2
-// 15-21 => الأسبوع 3
-// 22-28 => الأسبوع 4
-// 29+ => الأسبوع 5
-// هذا يضمن أن كل 7 أيام متتالية تُعامل كأسبوع واحد في التناوب
-function getWeekNumber(date: Date, _monthStart: Date): number {
-  const dayOfMonth = date.getDate();
-  return Math.floor((dayOfMonth - 1) / 7) + 1;
+// حساب رقم الأسبوع الحقيقي (السبت بداية الأسبوع)
+function getWeekIndex(date: Date, monthStart: Date): number {
+  // أول سبت في الشهر
+  let firstSaturday = new Date(monthStart);
+  while (firstSaturday.getDay() !== 6) {
+    firstSaturday.setDate(firstSaturday.getDate() + 1);
+  }
+  if (date < firstSaturday) return 1;
+  // الفرق بالأيام
+  const diff = Math.floor((date.getTime() - firstSaturday.getTime()) / (1000 * 60 * 60 * 24));
+  return 1 + Math.floor(diff / 7) + 1;
 }
 
 // الحصول على رمز الشفت حسب نوع الموظفة
@@ -244,12 +245,12 @@ export async function generateSchedule({
   const monthEnd = endOfMonth(monthStart);
   const allDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
   
-  // تجميع الأيام حسب الأسبوع
+  // تجميع الأيام حسب الأسبوع (السبت بداية الأسبوع)
   const weekDaysMap = new Map<number, Date[]>();
   for (const day of allDays) {
-    const weekNum = getWeekNumber(day, monthStart);
-    if (!weekDaysMap.has(weekNum)) weekDaysMap.set(weekNum, []);
-    weekDaysMap.get(weekNum)!.push(day);
+    const weekIndex = getWeekIndex(day, monthStart);
+    if (!weekDaysMap.has(weekIndex)) weekDaysMap.set(weekIndex, []);
+    weekDaysMap.get(weekIndex)!.push(day);
   }
   
   const weeks = [...weekDaysMap.keys()].sort((a, b) => a - b);
@@ -339,14 +340,14 @@ export async function generateSchedule({
     if (!empWeeklyShift.has(tooqId)) {
       empWeeklyShift.set(tooqId, new Map());
     }
-    for (const weekNum of weeks) {
-      empWeeklyShift.get(tooqId)!.set(weekNum, "Evening");
+    for (const weekIndex of weeks) {
+      empWeeklyShift.get(tooqId)!.set(weekIndex, "Evening");
     }
   }
   
-  for (const weekNum of weeks) {
+  for (const weekIndex of weeks) {
   const shiftMap = new Map<string, ShiftType>();
-  weeklyShifts.set(weekNum, shiftMap);
+  weeklyShifts.set(weekIndex, shiftMap);
 
   // Tooq دائماً مسائية
   if (tooqEmployee) {
@@ -356,47 +357,45 @@ export async function generateSchedule({
   // تجهيز الموظفات القابلات للتناوب فقط (بدون الثابتات)
   const weekEmployees = rotatingEmployees.map(e => String(e.id));
 
-  // حفظ آخر شفت لكل موظفة
-  const prevShifts: Record<string, ShiftType> = {};
-  for (const empId of weekEmployees) {
-    prevShifts[empId] = lastShiftType.get(empId) || "Evening";
-  }
-
-  // التناوب: عكس الشفت للأسبوع الجديد
-  let candidates = weekEmployees.map(empId => ({
+  // تناوب أسبوعي فقط: كل موظف/ة يعكس شفته عن الأسبوع الماضي
+  // توزيع صارم: فقط العدد الموجود في الإعدادات
+  let nextShifts = weekEmployees.map(empId => ({
     empId,
-    nextShift: prevShifts[empId] === "Morning" ? "Evening" : "Morning" as ShiftType
+    nextShift: (lastShiftType.get(empId) || "Evening") === "Morning" ? "Evening" : "Morning" as ShiftType
   }));
 
-  // توزيع حسب العدد المطلوب
-  let morningList = candidates.filter(c => c.nextShift === "Morning");
-  let eveningList = candidates.filter(c => c.nextShift === "Evening");
+  // توزيع الصباح
+  let morningList = nextShifts.filter(c => c.nextShift === "Morning");
+  let eveningList = nextShifts.filter(c => c.nextShift === "Evening");
 
-  // إذا العدد غير كافٍ، نبدّل من القائمة الأخرى
+  // لا يسمح بتجاوز العدد
   if (morningList.length > settings.coverageMorning) {
-    // خذ فقط العدد المطلوب، والباقي مساء
     const extra = morningList.splice(settings.coverageMorning);
     eveningList = eveningList.concat(extra.map(c => ({ empId: c.empId, nextShift: "Evening" as ShiftType })));
   } else if (morningList.length < settings.coverageMorning) {
-    // نكمل من المساء
     const needed = settings.coverageMorning - morningList.length;
     const toMove = eveningList.splice(0, needed);
     morningList = morningList.concat(toMove.map(c => ({ empId: c.empId, nextShift: "Morning" as ShiftType })));
   }
 
-  // الآن لدينا العدد الصحيح
+  // لا يسمح بتجاوز العدد للمساء
+  if (eveningList.length > settings.coverageEvening - (tooqEmployee ? 1 : 0)) {
+    eveningList = eveningList.slice(0, settings.coverageEvening - (tooqEmployee ? 1 : 0));
+  }
+
+  // تعيين الشفتات الأسبوعية
   for (const c of morningList) {
     shiftMap.set(c.empId, "Morning");
-    empWeeklyShift.get(c.empId)!.set(weekNum, "Morning");
+    empWeeklyShift.get(c.empId)!.set(weekIndex, "Morning");
     lastShiftType.set(c.empId, "Morning");
   }
   for (const c of eveningList) {
     shiftMap.set(c.empId, "Evening");
-    empWeeklyShift.get(c.empId)!.set(weekNum, "Evening");
+    empWeeklyShift.get(c.empId)!.set(weekIndex, "Evening");
     lastShiftType.set(c.empId, "Evening");
   }
 
-  // حساب التغطية الفعلية (مع Tooq)
+  // تحقق نهائي بعد التوزيع
   let morningCount = 0;
   let eveningCount = 0;
   for (const s of shiftMap.values()) {
@@ -404,8 +403,13 @@ export async function generateSchedule({
     else eveningCount++;
   }
   const actualEvening = eveningCount + (tooqEmployee ? 1 : 0);
-  console.log(`    - الأسبوع ${weekNum}: صباح=${morningCount}, مساء=${actualEvening} (مع Tooq)`);
+  if (morningCount !== settings.coverageMorning || actualEvening !== settings.coverageEvening) {
+    console.warn(`⚠️ الأسبوع ${weekIndex}: التغطية لا تطابق الإعدادات! صباح=${morningCount}/${settings.coverageMorning}، مساء=${actualEvening}/${settings.coverageEvening}`);
+  } else {
+    console.log(`    - الأسبوع ${weekIndex}: صباح=${morningCount}, مساء=${actualEvening} (مع Tooq)`);
+  }
 }
+
   
   // طباعة ملخص التوزيع النهائي (نمط أسبوع صباح/أسبوع مساء)
   console.log(`\n    📊 ملخص التوزيع النهائي (تناوب أسبوعي):`);
@@ -465,14 +469,14 @@ export async function generateSchedule({
   
   console.log(`\n[4] توزيع الإجازات الأسبوعية (عشوائي)...`);
   
-  // weekNum -> empId -> dateISO
+  // weekIndex -> empId -> dateISO
   const weeklyOffDays = new Map<number, Map<string, string>>();
   
-  for (const weekNum of weeks) {
+  for (const weekIndex of weeks) {
     const offMap = new Map<string, string>();
-    weeklyOffDays.set(weekNum, offMap);
+    weeklyOffDays.set(weekIndex, offMap);
     
-    const weekDays = weekDaysMap.get(weekNum) || [];
+    const weekDays = weekDaysMap.get(weekIndex) || [];
     
     // أيام العمل (بدون الجمعة)
     const workDays = weekDays.filter(d => getDay(d) !== 5);
@@ -486,7 +490,7 @@ export async function generateSchedule({
     if (workDays.length === 0) continue;
     
     // خلط أيام OFF عشوائياً (للموظفات غير مروة)
-    const shuffledOffDays = shuffleWithSeed([...offDaysForOthers], actualSeed + weekNum * 500);
+    const shuffledOffDays = shuffleWithSeed([...offDaysForOthers], actualSeed + weekIndex * 500);
     
     // تتبع عدد OFF لكل يوم
     const dayOffCount = new Map<string, number>();
@@ -497,7 +501,7 @@ export async function generateSchedule({
     // جميع الموظفات (عادية + between) - مخلوطة عشوائياً
     const allEmpsForOff = [...regularEmployees];
     if (betweenEmployee) allEmpsForOff.push(betweenEmployee);
-    const shuffledEmps = shuffleWithSeed(allEmpsForOff, actualSeed + weekNum * 700);
+    const shuffledEmps = shuffleWithSeed(allEmpsForOff, actualSeed + weekIndex * 700);
     
     // ═══════════════════════════════════════════════════════════════════
     // أولاً: معالجة مروة (السبت OFF)
@@ -660,7 +664,7 @@ export async function generateSchedule({
   for (const day of allDays) {
     const dateISO = format(day, "yyyy-MM-dd");
     const dow = getDay(day);
-    const weekNum = getWeekNumber(day, monthStart);
+    const weekIndex = getWeekIndex(day, monthStart);
     
     // ═══════════════════════════════════════════════════════════════════
     // الجمعة: OFF للجميع
@@ -678,8 +682,8 @@ export async function generateSchedule({
       continue;
     }
     
-    const weekOffMap = weeklyOffDays.get(weekNum) || new Map();
-    const weekShiftMap = weeklyShifts.get(weekNum) || new Map();
+    const weekOffMap = weeklyOffDays.get(weekIndex) || new Map();
+    const weekShiftMap = weeklyShifts.get(weekIndex) || new Map();
     
     // ═══════════════════════════════════════════════════════════════════
     // بناء السجلات
@@ -719,7 +723,8 @@ export async function generateSchedule({
       }
       // 5. موظفة لها شفت محدد هذا الأسبوع
       else {
-        const shift = weekShiftMap.get(empId);
+        const shift = weekShiftMap.get(empId); // weekShiftMap هو empWeeklyShift.get(empId)
+
         if (shift === "Morning") {
           symbol = getShiftSymbol(emp, "Morning");
         } else if (shift === "Evening") {
