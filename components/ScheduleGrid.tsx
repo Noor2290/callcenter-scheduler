@@ -87,7 +87,7 @@ export default function ScheduleGrid() {
     }
     
     setIsGenerating(true);
-    setMsg('جاري توليد جدول جديد...');
+    setMsg('جاري توليد جدول جديد...'); // رسالة مؤقتة أثناء التوليد فقط
     
     try {
       // ✅ seed عشوائي جديد كل مرة = جدول مختلف كل مرة
@@ -117,8 +117,7 @@ export default function ScheduleGrid() {
         seed: json.seed || newSeed
       };
       
-      const d = json.debug || {};
-      setMsg(`✅ تم توليد جدول جديد (صباح: ${d.coverageMorning}, مساء: ${d.coverageEvening}) - اضغط "حفظ" للاعتماد`);
+      setMsg(`✅ تم توليد جدول جديد`);
     } catch (err: any) {
       setMsg('❌ خطأ: ' + (err.message || 'غير معروف'));
     } finally {
