@@ -149,12 +149,14 @@ export async function generateSchedule({
   year,
   month,
   preview = false,
-  seed
+  seed,
+  lastWeekShifts
 }: {
   year: number;
   month: number;
   preview?: boolean;  // true = لا يحفظ في DB
   seed?: number;      // seed عشوائي لتوليد جداول مختلفة
+  lastWeekShifts?: Record<string, 'Morning' | 'Evening'>;
 }) {
   const sb = supabaseServer();
   
@@ -320,8 +322,19 @@ export async function generateSchedule({
   for (let i = 0; i < rotatingEmployees.length; i++) {
     const emp = rotatingEmployees[i];
     const empId = String(emp.id);
-    // نبدأ النمط بالتناوب بين الموظفات تقريباً: أول موظفة صباح، الثانية مساء، ...
-    lastShiftType.set(empId, i % 2 === 0 ? "Morning" : "Evening");
+    // إذا كان هناك lastWeekShifts واستخدمنا الأسبوع الأول فقط
+    if (lastWeekShifts && weeks.length > 0) {
+      const prev = lastWeekShifts[empId];
+      if (prev === 'Morning') {
+        lastShiftType.set(empId, 'Evening'); // عكس
+      } else if (prev === 'Evening') {
+        lastShiftType.set(empId, 'Morning'); // عكس
+      } else {
+        lastShiftType.set(empId, i % 2 === 0 ? "Morning" : "Evening");
+      }
+    } else {
+      lastShiftType.set(empId, i % 2 === 0 ? "Morning" : "Evening");
+    }
   }
   
   // بناء جدول الشفتات الأسبوعية

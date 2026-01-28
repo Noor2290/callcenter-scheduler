@@ -194,13 +194,40 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // استخراج آخر 7 تواريخ فعليًا من جميع rows
+    const allDates = Array.from(new Set(rows.map(r => r.date))).sort();
+    const last7Dates = allDates.slice(-7);
+
+    // استخراج آخر شفت Morning/Evening لكل موظفة في آخر أسبوع
+    const lastWeekShifts: Record<string, 'Morning' | 'Evening'> = {};
+    for (const emp of emps ?? []) {
+      const empId = String(emp.id);
+      // ابحث من النهاية للأمام
+      for (let i = last7Dates.length - 1; i >= 0; i--) {
+        const d = last7Dates[i];
+        const row = rows.find(r => r.employee_id === empId && r.date === d);
+        if (!row) continue;
+        const symbol = row.symbol?.toUpperCase() || '';
+        // رموز الصباح: تبدأ بـ M أو PT4
+        // رموز المساء: تبدأ بـ E أو PT5 أو MA4
+        if (symbol.startsWith('M') || symbol === 'PT4') {
+          lastWeekShifts[empId] = 'Morning';
+          break;
+        }
+        if (symbol.startsWith('E') || symbol === 'PT5' || symbol === 'MA4') {
+          lastWeekShifts[empId] = 'Evening';
+          break;
+        }
+      }
+    }
+
     // Optionally auto-generate next month
     let nextGen: any = undefined;
     if (autoNext) {
       let nextYear = year;
       let nextMonth = month + 1;
       if (nextMonth > 12) { nextMonth = 1; nextYear += 1; }
-      nextGen = await generateSchedule({ year: nextYear, month: nextMonth });
+      nextGen = await generateSchedule({ year: nextYear, month: nextMonth, lastWeekShifts });
     }
 
     return NextResponse.json({ 
