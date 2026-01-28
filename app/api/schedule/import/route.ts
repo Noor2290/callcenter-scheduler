@@ -156,11 +156,8 @@ export async function POST(req: NextRequest) {
         const c = firstDayCol + d - 1;
         const cellValue = row.getCell(c).value;
         
-        // استيراد القيمة كما هي بالضبط
-        let symbol = '';
-        if (cellValue !== null && cellValue !== undefined) {
-          symbol = String(cellValue).trim().toUpperCase();
-        }
+        // استيراد القيمة كما هي بالضبط (بدون أي تعديل)
+        let symbol = String(cellValue ?? '').trim();
         
         const date = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
         rows.push({ employee_id: empId, date, symbol, code: symbol });

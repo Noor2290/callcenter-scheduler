@@ -430,6 +430,33 @@ export default function ScheduleGrid() {
       
       {/* أزرار التحكم */}
       <div className="flex gap-3 items-center flex-wrap">
+        {/* زر توليد جدول الشهر التالي */}
+        <button
+          onClick={async () => {
+            if (!settings.year || !settings.month) return;
+            setMsg('جاري توليد جدول الشهر التالي...');
+            const nextYear = settings.month === 12 ? settings.year + 1 : settings.year;
+            const nextMonth = settings.month === 12 ? 1 : settings.month + 1;
+            const res = await fetch('/api/schedule/generate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ year: nextYear, month: nextMonth })
+            });
+            const json = await res.json();
+            if (json && json.assignments) {
+              setData(json);
+              updateGridFromData(json);
+              setIsPreviewMode(true);
+              setMsg(`✅ تم توليد جدول الشهر التالي (${getMonthName(nextMonth)} ${nextYear})`);
+            } else {
+              setMsg('❌ فشل في توليد الشهر التالي');
+            }
+          }}
+          className="px-5 py-2.5 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl font-medium shadow-md hover:shadow-lg flex items-center gap-2 transition-all"
+        >
+          <span>⏭️</span>
+          <span>توليد جدول الشهر التالي</span>
+        </button>
         {/* زر توليد جدول جديد */}
         <button 
           onClick={generateNewSchedule} 
