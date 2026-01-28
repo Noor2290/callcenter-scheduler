@@ -151,13 +151,15 @@ export async function generateSchedule({
   month,
   preview = false,
   seed,
-  lastWeekShifts
+  lastWeekShifts,
+  weekStartDay
 }: {
   year: number;
   month: number;
   preview?: boolean;  // true = لا يحفظ في DB
   seed?: number;      // seed عشوائي لتوليد جداول مختلفة
   lastWeekShifts?: Record<string, 'Morning' | 'Evening'>;
+  weekStartDay?: number;
 }) {
   const sb = supabaseServer();
   
@@ -319,15 +321,17 @@ export async function generateSchedule({
   
   console.log(`    - التغطية المسائية للتناوب: ${eveningCoverageForRotation} (Tooq محجوزة: ${tooqEmployee ? 'نعم' : 'لا'})`);
   
-  // دعم weekStartDay (افتراضي السبت=6)
-  const weekStartDay = typeof settings.weekStartDay === 'number' ? settings.weekStartDay : 6;
+  // weekStartDay يأتي من باراميتر الدالة أو من الإعدادات أو الافتراضي 6
+  const weekStart = typeof weekStartDay === 'number'
+    ? weekStartDay
+    : (typeof settings.weekStartDay === 'number' ? settings.weekStartDay : 6);
   // أول يوم في الشهر الجديد
   const firstDay = allDays[0];
   // آخر يوم في الشهر السابق
   const prevMonthEnd = new Date(year, month - 1, 0);
   // هل أول يوم في الشهر الجديد يقع في أسبوع مشترك مع الشهر السابق؟
   const firstWeekStart = new Date(firstDay);
-  while (firstWeekStart.getDay() !== weekStartDay) firstWeekStart.setDate(firstWeekStart.getDate() - 1);
+  while (firstWeekStart.getDay() !== weekStart) firstWeekStart.setDate(firstWeekStart.getDate() - 1);
   const firstWeekEnd = new Date(firstWeekStart); firstWeekEnd.setDate(firstWeekStart.getDate() + 6);
   const isSharedWeek = prevMonthEnd >= firstWeekStart && prevMonthEnd <= firstWeekEnd;
 
