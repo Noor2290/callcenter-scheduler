@@ -106,6 +106,7 @@ interface Settings {
   coverageEvening: number;
   useBetweenShift: boolean;
   betweenShiftEmployeeId: string | null;
+  weekStartDay?: number; // 0-6 (اختياري)
 }
 
 interface DayAssignment {
@@ -200,8 +201,10 @@ export async function generateSchedule({
     coverageMorning: Number(settingsMap['coverageMorning']) || 0,
     coverageEvening: Number(settingsMap['coverageEvening']) || 0,
     useBetweenShift: settingsMap['useBetweenShift'] === 'true',
-    betweenShiftEmployeeId: settingsMap['betweenShiftEmployeeId'] || null
+    betweenShiftEmployeeId: settingsMap['betweenShiftEmployeeId'] || null,
+    weekStartDay: settingsMap['weekStartDay'] !== undefined ? Number(settingsMap['weekStartDay']) : 6
   };
+
   
   console.log(`[1] الإعدادات:`);
   console.log(`    - تغطية الصباح: ${settings.coverageMorning}`);
@@ -316,26 +319,42 @@ export async function generateSchedule({
   
   console.log(`    - التغطية المسائية للتناوب: ${eveningCoverageForRotation} (Tooq محجوزة: ${tooqEmployee ? 'نعم' : 'لا'})`);
   
+  // دعم weekStartDay (افتراضي السبت=6)
+  const weekStartDay = typeof settings.weekStartDay === 'number' ? settings.weekStartDay : 6;
+  // أول يوم في الشهر الجديد
+  const firstDay = allDays[0];
+  // آخر يوم في الشهر السابق
+  const prevMonthEnd = new Date(year, month - 1, 0);
+  // هل أول يوم في الشهر الجديد يقع في أسبوع مشترك مع الشهر السابق؟
+  const firstWeekStart = new Date(firstDay);
+  while (firstWeekStart.getDay() !== weekStartDay) firstWeekStart.setDate(firstWeekStart.getDate() - 1);
+  const firstWeekEnd = new Date(firstWeekStart); firstWeekEnd.setDate(firstWeekStart.getDate() + 6);
+  const isSharedWeek = prevMonthEnd >= firstWeekStart && prevMonthEnd <= firstWeekEnd;
+
   // تتبع آخر شفت لكل موظفة في التناوب (أسبوع صباح، أسبوع مساء)
   // نستخدم Map لحفظ آخر شفت لكل موظفة، ويتم التهيئة خارج حلقة الأسابيع
   const lastShiftType = new Map<string, ShiftType>();
   for (let i = 0; i < rotatingEmployees.length; i++) {
     const emp = rotatingEmployees[i];
     const empId = String(emp.id);
-    // إذا كان هناك lastWeekShifts واستخدمنا الأسبوع الأول فقط
     if (lastWeekShifts && weeks.length > 0) {
       const prev = lastWeekShifts[empId];
-      if (prev === 'Morning') {
-        lastShiftType.set(empId, 'Evening'); // عكس
-      } else if (prev === 'Evening') {
-        lastShiftType.set(empId, 'Morning'); // عكس
+      if (isSharedWeek && prev) {
+        // إذا كان أول أسبوع مشترك: نكمّل نفس الشفت لباقي هذا الأسبوع
+        lastShiftType.set(empId, prev);
+      } else if (!isSharedWeek && prev) {
+        // إذا لم يكن هناك أسبوع مشترك: نبدأ بالمعكوس
+        lastShiftType.set(empId, prev === 'Morning' ? 'Evening' : 'Morning');
       } else {
+        // إذا لم يوجد شفت سابق: استخدم المنطق الافتراضي
         lastShiftType.set(empId, i % 2 === 0 ? "Morning" : "Evening");
       }
     } else {
       lastShiftType.set(empId, i % 2 === 0 ? "Morning" : "Evening");
     }
   }
+
+  // بعد توزيع أول أسبوع (مشترك أو لا)، في الأسابيع التالية نطبّق الانعكاس المعتاد تلقائيًا
   
   // بناء جدول الشفتات الأسبوعية
   const weeklyShifts = new Map<number, Map<string, ShiftType>>();
