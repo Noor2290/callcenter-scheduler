@@ -423,24 +423,28 @@ export async function generateSchedule({
   
   console.log(`[WEEK ${weekIndex}] isFirstWeek: ${isFirstWeek}, shouldKeepSameShift: ${shouldKeepSameShift}, isSharedWeek: ${isSharedWeek}`);
   if (isFirstWeek && lastWeekShifts) {
-    console.log(`[WEEK ${weekIndex}] lastWeekShifts sample:`, Object.entries(lastWeekShifts).slice(0, 3));
+    console.log(`[WEEK ${weekIndex}] lastWeekShifts available:`, Object.keys(lastWeekShifts).length, 'employees');
+    console.log(`[WEEK ${weekIndex}] lastWeekShifts sample:`, Object.entries(lastWeekShifts).slice(0, 5));
   }
   
   let nextShifts = weekEmployees.map(empId => {
-    const currentShift = lastShiftType.get(empId) || "Evening";
-    
-    // إذا كان الأسبوع الأول وهو أسبوع مشترك: نستخدم الشفت مباشرة من lastWeekShifts
-    if (shouldKeepSameShift && lastWeekShifts && lastWeekShifts[empId]) {
+    // ═══════════════════════════════════════════════════════════════════
+    // الأسبوع الأول المشترك: نستخدم الشفت مباشرة من lastWeekShifts بدون عكس
+    // ═══════════════════════════════════════════════════════════════════
+    if (isFirstWeek && isSharedWeek && lastWeekShifts) {
       const shiftFromPrevMonth = lastWeekShifts[empId];
-      console.log(`[WEEK ${weekIndex}] ${empId}: using lastWeekShifts -> ${shiftFromPrevMonth}`);
-      return { empId, nextShift: shiftFromPrevMonth };
+      if (shiftFromPrevMonth) {
+        console.log(`[WEEK ${weekIndex}] ${empId}: SHARED WEEK -> keeping ${shiftFromPrevMonth}`);
+        return { empId, nextShift: shiftFromPrevMonth };
+      }
     }
     
-    // غير ذلك: نعكس الشفت
-    return {
-      empId,
-      nextShift: currentShift === "Morning" ? "Evening" : "Morning" as ShiftType
-    };
+    // ═══════════════════════════════════════════════════════════════════
+    // الأسابيع العادية: نعكس الشفت عن الأسبوع السابق
+    // ═══════════════════════════════════════════════════════════════════
+    const currentShift = lastShiftType.get(empId) || "Evening";
+    const nextShift = currentShift === "Morning" ? "Evening" : "Morning";
+    return { empId, nextShift: nextShift as ShiftType };
   });
 
   // توزيع الصباح
