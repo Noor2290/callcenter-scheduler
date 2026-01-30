@@ -88,6 +88,8 @@ export async function POST(req: NextRequest) {
           }
         }
         console.log(`[generate] lastWeekShifts from ${prevYear}-${prevMonth}:`, Object.keys(lastWeekShifts).length, 'employees');
+        console.log(`[generate] lastWeekDates:`, lastWeekDates);
+        console.log(`[generate] Sample shifts:`, Object.entries(lastWeekShifts).slice(0, 5));
       }
     }
 

@@ -368,9 +368,14 @@ export async function generateSchedule({
     }
   }
   
-  console.log(`[3] isSharedWeek: ${isSharedWeek}, firstDay: ${format(firstDay, 'yyyy-MM-dd')} (${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][firstDay.getDay()]})`);
+  console.log(`[3] weekStart: ${weekStart} (${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][weekStart]})`);
+  console.log(`[3] firstDay: ${format(firstDay, 'yyyy-MM-dd')} (${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][firstDay.getDay()]})`);
+  console.log(`[3] prevMonthEnd: ${format(prevMonthEnd, 'yyyy-MM-dd')} (${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][prevMonthEnd.getDay()]})`);
+  console.log(`[3] firstWeekStart: ${format(firstWeekStart, 'yyyy-MM-dd')}, firstWeekEnd: ${format(firstWeekEnd, 'yyyy-MM-dd')}`);
+  console.log(`[3] isSharedWeek: ${isSharedWeek}`);
   if (lastWeekShifts) {
     console.log(`[3] lastWeekShifts من الشهر السابق:`, Object.keys(lastWeekShifts).length, 'موظفة');
+    console.log(`[3] Sample lastWeekShifts:`, Object.entries(lastWeekShifts).slice(0, 3));
   }
 
   // بعد توزيع أول أسبوع (مشترك أو لا)، في الأسابيع التالية نطبّق الانعكاس المعتاد تلقائيًا
