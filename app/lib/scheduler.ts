@@ -429,9 +429,18 @@ export async function generateSchedule({
   const shouldKeepSameShift = isFirstWeek && isSharedWeek && lastWeekShifts && Object.keys(lastWeekShifts).length > 0;
   
   console.log(`[WEEK ${weekIndex}] isFirstWeek: ${isFirstWeek}, shouldKeepSameShift: ${shouldKeepSameShift}, isSharedWeek: ${isSharedWeek}`);
-  if (isFirstWeek && lastWeekShifts) {
-    console.log(`[WEEK ${weekIndex}] lastWeekShifts available:`, Object.keys(lastWeekShifts).length, 'employees');
-    console.log(`[WEEK ${weekIndex}] lastWeekShifts sample:`, Object.entries(lastWeekShifts).slice(0, 5));
+  if (isFirstWeek) {
+    console.log(`[WEEK ${weekIndex}] weekEmployees sample:`, weekEmployees.slice(0, 5));
+    if (lastWeekShifts) {
+      console.log(`[WEEK ${weekIndex}] lastWeekShifts keys:`, Object.keys(lastWeekShifts).slice(0, 5));
+      console.log(`[WEEK ${weekIndex}] lastWeekShifts values:`, Object.entries(lastWeekShifts).slice(0, 5));
+      // مقارنة المفاتيح
+      const firstEmpId = weekEmployees[0];
+      console.log(`[WEEK ${weekIndex}] First empId: '${firstEmpId}' (type: ${typeof firstEmpId})`);
+      console.log(`[WEEK ${weekIndex}] lastWeekShifts[${firstEmpId}]:`, lastWeekShifts[firstEmpId]);
+    } else {
+      console.log(`[WEEK ${weekIndex}] lastWeekShifts is undefined or null`);
+    }
   }
   
   let nextShifts = weekEmployees.map(empId => {
