@@ -79,13 +79,7 @@ export default function ScheduleGrid() {
     setGridOriginal(JSON.parse(JSON.stringify(g)));
   }
 
-  // توليد جدول جديد تلقائياً عند أول تحميل (on mount)
-  useEffect(() => {
-    if (settings.year && settings.month) {
-      generateNewSchedule();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.year, settings.month]);
+  // لا توليد تلقائي عند تحميل الصفحة، فقط عرض الجدول المستورد أو عند الضغط على زر التوليد
 
   // توليد جدول جديد (preview mode - لا يُحفظ في DB)
   async function generateNewSchedule() {
@@ -319,19 +313,19 @@ export default function ScheduleGrid() {
         return;
       }
       
-      // ✅ تحديث العرض بالشهر والسنة المستخرجة من الملف
+      // ✅ تحديث العرض بالشهر والسنة المستخرجة من الملف ثم عرض الرسالة بعد التأكد
       if (json.year && json.month) {
-        // تحميل الجدول المستورد للشهر المستخرج من الملف
         const scheduleRes = await fetch(`/api/schedule/${json.year}/${json.month}`);
         const scheduleJson = await scheduleRes.json();
         if (scheduleRes.ok && scheduleJson.assignments) {
           setData(scheduleJson);
           updateGridFromData(scheduleJson);
           setIsPreviewMode(false);
+          setMsg(`✅ تم استيراد جدول ${getMonthName(json.month)} ${json.year} بنجاح (${json.employees} موظفة، ${json.imported} خلية)`);
+        } else {
+          setMsg('❌ فشل في تحميل الجدول المستورد بعد الاستيراد');
         }
       }
-      
-      setMsg(`✅ تم استيراد جدول ${getMonthName(json.month)} ${json.year} بنجاح (${json.employees} موظفة، ${json.imported} خلية)`);
     } catch (e: any) {
       setMsg('❌ ' + (e?.message || 'فشل الاستيراد'));
     } finally {

@@ -235,6 +235,16 @@ export async function POST(req: NextRequest) {
       nextGen = await generateSchedule({ year: nextYear, month: nextMonth, lastWeekShifts, weekStartDay });
     }
 
+    // طباعة تشخيصية: أول 10 صفوف من جدول assignments بعد الاستيراد
+    const checkAssignments = await sb
+      .from('assignments')
+      .select('*')
+      .eq('month_id', monthRow.id)
+      .order('employee_id', { ascending: true })
+      .order('date', { ascending: true })
+      .limit(10);
+    console.log('DB assignments sample:', checkAssignments.data);
+
     return NextResponse.json({ 
       ok: true, 
       imported: uniqueRows.length, 
