@@ -329,11 +329,18 @@ export async function generateSchedule({
   const firstDay = allDays[0];
   // آخر يوم في الشهر السابق
   const prevMonthEnd = new Date(year, month - 1, 0);
-  // هل أول يوم في الشهر الجديد يقع في أسبوع مشترك مع الشهر السابق؟
+  
+  // ═══════════════════════════════════════════════════════════════════
+  // هل أول يوم في الشهر الجديد ليس يوم السبت؟
+  // إذا كان أول يوم في الشهر الجديد ليس السبت، فهذا يعني أننا في منتصف أسبوع بدأ في الشهر السابق
+  // ═══════════════════════════════════════════════════════════════════
+  const firstDayOfWeek = firstDay.getDay(); // 0=أحد, 1=اثنين, ..., 6=سبت
+  const isSharedWeek = firstDayOfWeek !== weekStart; // إذا لم يبدأ الشهر يوم السبت، فهو أسبوع مشترك
+  
+  // للتوافق مع الكود القديم
   const firstWeekStart = new Date(firstDay);
   while (firstWeekStart.getDay() !== weekStart) firstWeekStart.setDate(firstWeekStart.getDate() - 1);
   const firstWeekEnd = new Date(firstWeekStart); firstWeekEnd.setDate(firstWeekStart.getDate() + 6);
-  const isSharedWeek = prevMonthEnd >= firstWeekStart && prevMonthEnd <= firstWeekEnd;
 
   // تتبع آخر شفت لكل موظفة في التناوب (أسبوع صباح، أسبوع مساء)
   // نستخدم Map لحفظ آخر شفت لكل موظفة، ويتم التهيئة خارج حلقة الأسابيع
