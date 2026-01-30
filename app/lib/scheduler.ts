@@ -421,7 +421,10 @@ export async function generateSchedule({
   const isFirstWeek = weekIndex === weeks[0];
   const shouldKeepSameShift = isFirstWeek && isSharedWeek && lastWeekShifts && Object.keys(lastWeekShifts).length > 0;
   
-  console.log(`[WEEK ${weekIndex}] isFirstWeek: ${isFirstWeek}, shouldKeepSameShift: ${shouldKeepSameShift}`);
+  console.log(`[WEEK ${weekIndex}] isFirstWeek: ${isFirstWeek}, shouldKeepSameShift: ${shouldKeepSameShift}, isSharedWeek: ${isSharedWeek}`);
+  if (isFirstWeek && lastWeekShifts) {
+    console.log(`[WEEK ${weekIndex}] lastWeekShifts sample:`, Object.entries(lastWeekShifts).slice(0, 3));
+  }
   
   let nextShifts = weekEmployees.map(empId => {
     const currentShift = lastShiftType.get(empId) || "Evening";
@@ -429,6 +432,7 @@ export async function generateSchedule({
     // إذا كان الأسبوع الأول وهو أسبوع مشترك: نستخدم الشفت مباشرة من lastWeekShifts
     if (shouldKeepSameShift && lastWeekShifts && lastWeekShifts[empId]) {
       const shiftFromPrevMonth = lastWeekShifts[empId];
+      console.log(`[WEEK ${weekIndex}] ${empId}: using lastWeekShifts -> ${shiftFromPrevMonth}`);
       return { empId, nextShift: shiftFromPrevMonth };
     }
     
