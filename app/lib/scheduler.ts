@@ -421,12 +421,15 @@ export async function generateSchedule({
   const isFirstWeek = weekIndex === weeks[0];
   const shouldKeepSameShift = isFirstWeek && isSharedWeek && lastWeekShifts && Object.keys(lastWeekShifts).length > 0;
   
+  console.log(`[WEEK ${weekIndex}] isFirstWeek: ${isFirstWeek}, shouldKeepSameShift: ${shouldKeepSameShift}`);
+  
   let nextShifts = weekEmployees.map(empId => {
     const currentShift = lastShiftType.get(empId) || "Evening";
     
-    // إذا كان الأسبوع الأول وهو أسبوع مشترك: نستمر بنفس الشفت بالضبط
-    if (shouldKeepSameShift && lastWeekShifts[empId]) {
-      return { empId, nextShift: currentShift };
+    // إذا كان الأسبوع الأول وهو أسبوع مشترك: نستخدم الشفت مباشرة من lastWeekShifts
+    if (shouldKeepSameShift && lastWeekShifts && lastWeekShifts[empId]) {
+      const shiftFromPrevMonth = lastWeekShifts[empId];
+      return { empId, nextShift: shiftFromPrevMonth };
     }
     
     // غير ذلك: نعكس الشفت
