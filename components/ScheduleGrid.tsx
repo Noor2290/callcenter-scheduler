@@ -315,6 +315,7 @@ export default function ScheduleGrid() {
       
       // ✅ تحديث العرض بالشهر والسنة المستخرجة من الملف ثم عرض الرسالة بعد التأكد
       if (json.year && json.month) {
+        setSettings({ year: json.year, month: json.month }); // تحديث settings فورًا
         const scheduleRes = await fetch(`/api/schedule/${json.year}/${json.month}`);
         const scheduleJson = await scheduleRes.json();
         if (scheduleRes.ok && scheduleJson.assignments) {
