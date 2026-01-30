@@ -52,11 +52,14 @@ export async function POST(req: NextRequest) {
 
     console.log(`[generate] prevMonthRow:`, prevMonthRow, 'error:', prevMonthErr?.message);
 
-    // إذا تم تمرير lastWeekShifts من الواجهة، نستخدمه مباشرة
+    // إذا تم تمرير lastWeekShifts من الواجهة، نستخدمه مباشرة (أولوية عليا)
     let lastWeekShifts: Record<string, 'Morning' | 'Evening'> | undefined = body.lastWeekShifts;
     
+    console.log(`[generate] body.lastWeekShifts:`, body.lastWeekShifts ? Object.keys(body.lastWeekShifts).length + ' employees' : 'undefined');
+    
     if (lastWeekShifts && Object.keys(lastWeekShifts).length > 0) {
-      console.log(`[generate] Using lastWeekShifts from request body:`, Object.keys(lastWeekShifts).length, 'employees');
+      console.log(`[generate] ✅ Using lastWeekShifts from request body:`, Object.keys(lastWeekShifts).length, 'employees');
+      console.log(`[generate] Sample from body:`, Object.entries(lastWeekShifts).slice(0, 5));
     } else if (prevMonthRow) {
       // جلب assignments الشهر السابق
       const { data: prevAssignments } = await sb
