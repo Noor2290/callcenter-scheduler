@@ -432,10 +432,14 @@ export async function generateSchedule({
     // الأسبوع الأول المشترك: نستخدم الشفت مباشرة من lastWeekShifts بدون عكس
     // ═══════════════════════════════════════════════════════════════════
     if (isFirstWeek && isSharedWeek && lastWeekShifts) {
-      const shiftFromPrevMonth = lastWeekShifts[empId];
+      // جرب البحث بالمفتاح كما هو أو كـ string
+      const shiftFromPrevMonth = lastWeekShifts[empId] || lastWeekShifts[String(empId)];
       if (shiftFromPrevMonth) {
         console.log(`[WEEK ${weekIndex}] ${empId}: SHARED WEEK -> keeping ${shiftFromPrevMonth}`);
         return { empId, nextShift: shiftFromPrevMonth };
+      } else {
+        console.log(`[WEEK ${weekIndex}] ${empId}: SHARED WEEK but NO shift found in lastWeekShifts`);
+        console.log(`[WEEK ${weekIndex}] lastWeekShifts keys sample:`, Object.keys(lastWeekShifts).slice(0, 3));
       }
     }
     
