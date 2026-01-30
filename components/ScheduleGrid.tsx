@@ -428,17 +428,51 @@ export default function ScheduleGrid() {
         {/* زر توليد جدول الشهر التالي */}
         <button
           onClick={async () => {
-            if (!settings.year || !settings.month) return;
+            if (!settings.year || !settings.month || !data) return;
             setMsg('جاري توليد جدول الشهر التالي...');
             const nextYear = settings.month === 12 ? settings.year + 1 : settings.year;
             const nextMonth = settings.month === 12 ? 1 : settings.month + 1;
+            
+            // استخراج lastWeekShifts من الجدول المعروض حاليًا (آخر 7 أيام)
+            const lastWeekShifts: Record<string, 'Morning' | 'Evening'> = {};
+            if (data.assignments && data.assignments.length > 0) {
+              // جمع كل التواريخ وترتيبها
+              const allDates = Array.from(new Set(data.assignments.map(a => a.date))).sort();
+              const lastWeekDates = allDates.slice(-7);
+              
+              for (const emp of data.employees) {
+                const empId = emp.id;
+                // البحث عن آخر شفت للموظفة في آخر 7 أيام
+                for (let i = lastWeekDates.length - 1; i >= 0; i--) {
+                  const d = lastWeekDates[i];
+                  const assignment = data.assignments.find(a => a.employee_id === empId && a.date === d);
+                  if (!assignment) continue;
+                  const symbol = (assignment.symbol || '').toUpperCase();
+                  // Morning shifts: MA1, MA2, M2, PT4
+                  if (symbol.startsWith('M') || symbol === 'PT4') {
+                    lastWeekShifts[empId] = 'Morning';
+                    break;
+                  }
+                  // Evening shifts: EA1, E5, E2, MA4, PT5
+                  if (symbol.startsWith('E') || symbol === 'PT5' || symbol === 'MA4') {
+                    lastWeekShifts[empId] = 'Evening';
+                    break;
+                  }
+                }
+              }
+            }
+            
+            console.log('[UI] lastWeekShifts from current grid:', Object.keys(lastWeekShifts).length, 'employees');
+            console.log('[UI] Sample:', Object.entries(lastWeekShifts).slice(0, 5));
+            
             const res = await fetch('/api/schedule/generate', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ year: nextYear, month: nextMonth })
+              body: JSON.stringify({ year: nextYear, month: nextMonth, lastWeekShifts })
             });
             const json = await res.json();
             if (json && json.assignments) {
+              setSettings({ year: nextYear, month: nextMonth });
               setData(json);
               updateGridFromData(json);
               setIsPreviewMode(true);

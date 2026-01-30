@@ -52,9 +52,12 @@ export async function POST(req: NextRequest) {
 
     console.log(`[generate] prevMonthRow:`, prevMonthRow, 'error:', prevMonthErr?.message);
 
-    let lastWeekShifts: Record<string, 'Morning' | 'Evening'> | undefined;
-
-    if (prevMonthRow) {
+    // إذا تم تمرير lastWeekShifts من الواجهة، نستخدمه مباشرة
+    let lastWeekShifts: Record<string, 'Morning' | 'Evening'> | undefined = body.lastWeekShifts;
+    
+    if (lastWeekShifts && Object.keys(lastWeekShifts).length > 0) {
+      console.log(`[generate] Using lastWeekShifts from request body:`, Object.keys(lastWeekShifts).length, 'employees');
+    } else if (prevMonthRow) {
       // جلب assignments الشهر السابق
       const { data: prevAssignments } = await sb
         .from('assignments')
