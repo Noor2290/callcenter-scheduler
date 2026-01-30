@@ -441,11 +441,11 @@ export default function ScheduleGrid() {
               const lastWeekDates = allDates.slice(-7);
               
               for (const emp of data.employees) {
-                const empId = emp.id;
+                const empId = String(emp.id); // تأكد من أنه string
                 // البحث عن آخر شفت للموظفة في آخر 7 أيام
                 for (let i = lastWeekDates.length - 1; i >= 0; i--) {
                   const d = lastWeekDates[i];
-                  const assignment = data.assignments.find(a => a.employee_id === empId && a.date === d);
+                  const assignment = data.assignments.find(a => String(a.employee_id) === empId && a.date === d);
                   if (!assignment) continue;
                   const symbol = (assignment.symbol || '').toUpperCase();
                   // Morning shifts: MA1, MA2, M2, PT4
