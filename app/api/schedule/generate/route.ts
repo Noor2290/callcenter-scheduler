@@ -42,12 +42,15 @@ export async function POST(req: NextRequest) {
     if (prevMonth < 1) { prevMonth = 12; prevYear -= 1; }
 
     // جلب سجل الشهر السابق
-    const { data: prevMonthRow } = await sb
+    console.log(`[generate] Looking for previous month: ${prevYear}-${prevMonth}`);
+    const { data: prevMonthRow, error: prevMonthErr } = await sb
       .from('months')
       .select('id')
       .eq('year', prevYear)
       .eq('month', prevMonth)
       .single();
+
+    console.log(`[generate] prevMonthRow:`, prevMonthRow, 'error:', prevMonthErr?.message);
 
     let lastWeekShifts: Record<string, 'Morning' | 'Evening'> | undefined;
 
