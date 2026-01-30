@@ -338,24 +338,39 @@ export async function generateSchedule({
   // تتبع آخر شفت لكل موظفة في التناوب (أسبوع صباح، أسبوع مساء)
   // نستخدم Map لحفظ آخر شفت لكل موظفة، ويتم التهيئة خارج حلقة الأسابيع
   const lastShiftType = new Map<string, ShiftType>();
+  
+  // ═══════════════════════════════════════════════════════════════════
+  // منطق الأسبوع المشترك (سبت-خميس):
+  // - إذا الشهر الجديد يبدأ في منتصف أسبوع (ليس يوم السبت):
+  //   → نكمّل نفس الشفت من الشهر السابق حتى الخميس
+  //   → بعد الجمعة OFF، نبدأ أسبوع جديد بالشفت المعكوس
+  // - إذا الشهر الجديد يبدأ يوم السبت:
+  //   → نبدأ مباشرة بالشفت المعكوس
+  // ═══════════════════════════════════════════════════════════════════
+  
   for (let i = 0; i < rotatingEmployees.length; i++) {
     const emp = rotatingEmployees[i];
     const empId = String(emp.id);
     if (lastWeekShifts && weeks.length > 0) {
       const prev = lastWeekShifts[empId];
       if (isSharedWeek && prev) {
-        // إذا كان أول أسبوع مشترك: نكمّل نفس الشفت لباقي هذا الأسبوع
+        // أسبوع مشترك: نكمّل نفس الشفت (لن يتم عكسه في الأسبوع الأول)
         lastShiftType.set(empId, prev);
       } else if (!isSharedWeek && prev) {
-        // إذا لم يكن هناك أسبوع مشترك: نبدأ بالمعكوس
+        // الشهر يبدأ بأسبوع جديد (السبت): نبدأ بالمعكوس مباشرة
         lastShiftType.set(empId, prev === 'Morning' ? 'Evening' : 'Morning');
       } else {
-        // إذا لم يوجد شفت سابق: استخدم المنطق الافتراضي
+        // لا يوجد شفت سابق: استخدم المنطق الافتراضي
         lastShiftType.set(empId, i % 2 === 0 ? "Morning" : "Evening");
       }
     } else {
       lastShiftType.set(empId, i % 2 === 0 ? "Morning" : "Evening");
     }
+  }
+  
+  console.log(`[3] isSharedWeek: ${isSharedWeek}, firstDay: ${format(firstDay, 'yyyy-MM-dd')} (${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][firstDay.getDay()]})`);
+  if (lastWeekShifts) {
+    console.log(`[3] lastWeekShifts من الشهر السابق:`, Object.keys(lastWeekShifts).length, 'موظفة');
   }
 
   // بعد توزيع أول أسبوع (مشترك أو لا)، في الأسابيع التالية نطبّق الانعكاس المعتاد تلقائيًا
@@ -393,12 +408,27 @@ export async function generateSchedule({
   // تجهيز الموظفات القابلات للتناوب فقط (بدون الثابتات)
   const weekEmployees = rotatingEmployees.map(e => String(e.id));
 
-  // تناوب أسبوعي فقط: كل موظف/ة يعكس شفته عن الأسبوع الماضي
-  // توزيع صارم: فقط العدد الموجود في الإعدادات
-  let nextShifts = weekEmployees.map(empId => ({
-    empId,
-    nextShift: (lastShiftType.get(empId) || "Evening") === "Morning" ? "Evening" : "Morning" as ShiftType
-  }));
+  // ═══════════════════════════════════════════════════════════════════
+  // منطق التناوب الأسبوعي (سبت-خميس):
+  // - الأسبوع الأول المشترك: نستمر بنفس الشفت (لا عكس)
+  // - الأسابيع التالية: نعكس الشفت عن الأسبوع السابق
+  // ═══════════════════════════════════════════════════════════════════
+  const isFirstWeek = weekIndex === weeks[0];
+  
+  let nextShifts = weekEmployees.map(empId => {
+    const currentShift = lastShiftType.get(empId) || "Evening";
+    
+    // إذا كان الأسبوع الأول وهو أسبوع مشترك: نستمر بنفس الشفت
+    if (isFirstWeek && isSharedWeek && lastWeekShifts && lastWeekShifts[empId]) {
+      return { empId, nextShift: currentShift };
+    }
+    
+    // غير ذلك: نعكس الشفت
+    return {
+      empId,
+      nextShift: currentShift === "Morning" ? "Evening" : "Morning" as ShiftType
+    };
+  });
 
   // توزيع الصباح
   let morningList = nextShifts.filter(c => c.nextShift === "Morning");
