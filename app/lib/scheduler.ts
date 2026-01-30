@@ -410,16 +410,17 @@ export async function generateSchedule({
 
   // ═══════════════════════════════════════════════════════════════════
   // منطق التناوب الأسبوعي (سبت-خميس):
-  // - الأسبوع الأول المشترك: نستمر بنفس الشفت (لا عكس)
+  // - الأسبوع الأول المشترك: نستمر بنفس الشفت بالضبط (لا عكس، لا إعادة توزيع)
   // - الأسابيع التالية: نعكس الشفت عن الأسبوع السابق
   // ═══════════════════════════════════════════════════════════════════
   const isFirstWeek = weekIndex === weeks[0];
+  const shouldKeepSameShift = isFirstWeek && isSharedWeek && lastWeekShifts && Object.keys(lastWeekShifts).length > 0;
   
   let nextShifts = weekEmployees.map(empId => {
     const currentShift = lastShiftType.get(empId) || "Evening";
     
-    // إذا كان الأسبوع الأول وهو أسبوع مشترك: نستمر بنفس الشفت
-    if (isFirstWeek && isSharedWeek && lastWeekShifts && lastWeekShifts[empId]) {
+    // إذا كان الأسبوع الأول وهو أسبوع مشترك: نستمر بنفس الشفت بالضبط
+    if (shouldKeepSameShift && lastWeekShifts[empId]) {
       return { empId, nextShift: currentShift };
     }
     
@@ -434,19 +435,25 @@ export async function generateSchedule({
   let morningList = nextShifts.filter(c => c.nextShift === "Morning");
   let eveningList = nextShifts.filter(c => c.nextShift === "Evening");
 
-  // لا يسمح بتجاوز العدد
-  if (morningList.length > settings.coverageMorning) {
-    const extra = morningList.splice(settings.coverageMorning);
-    eveningList = eveningList.concat(extra.map(c => ({ empId: c.empId, nextShift: "Evening" as ShiftType })));
-  } else if (morningList.length < settings.coverageMorning) {
-    const needed = settings.coverageMorning - morningList.length;
-    const toMove = eveningList.splice(0, needed);
-    morningList = morningList.concat(toMove.map(c => ({ empId: c.empId, nextShift: "Morning" as ShiftType })));
-  }
+  // ═══════════════════════════════════════════════════════════════════
+  // في الأسبوع المشترك: لا نعيد التوزيع - نحافظ على نفس الشفتات من الشهر السابق
+  // في الأسابيع العادية: نطبق قواعد التغطية
+  // ═══════════════════════════════════════════════════════════════════
+  if (!shouldKeepSameShift) {
+    // لا يسمح بتجاوز العدد
+    if (morningList.length > settings.coverageMorning) {
+      const extra = morningList.splice(settings.coverageMorning);
+      eveningList = eveningList.concat(extra.map(c => ({ empId: c.empId, nextShift: "Evening" as ShiftType })));
+    } else if (morningList.length < settings.coverageMorning) {
+      const needed = settings.coverageMorning - morningList.length;
+      const toMove = eveningList.splice(0, needed);
+      morningList = morningList.concat(toMove.map(c => ({ empId: c.empId, nextShift: "Morning" as ShiftType })));
+    }
 
-  // لا يسمح بتجاوز العدد للمساء
-  if (eveningList.length > settings.coverageEvening - (tooqEmployee ? 1 : 0)) {
-    eveningList = eveningList.slice(0, settings.coverageEvening - (tooqEmployee ? 1 : 0));
+    // لا يسمح بتجاوز العدد للمساء
+    if (eveningList.length > settings.coverageEvening - (tooqEmployee ? 1 : 0)) {
+      eveningList = eveningList.slice(0, settings.coverageEvening - (tooqEmployee ? 1 : 0));
+    }
   }
 
   // تعيين الشفتات الأسبوعية
