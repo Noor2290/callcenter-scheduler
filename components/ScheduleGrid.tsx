@@ -462,8 +462,10 @@ export default function ScheduleGrid() {
               }
             }
             
+            console.log('[UI] ══════════════════════════════════════════════════');
             console.log('[UI] lastWeekShifts from current grid:', Object.keys(lastWeekShifts).length, 'employees');
-            console.log('[UI] Sample:', Object.entries(lastWeekShifts).slice(0, 5));
+            console.log('[UI] ALL lastWeekShifts:', JSON.stringify(lastWeekShifts));
+            console.log('[UI] ══════════════════════════════════════════════════');
             
             const res = await fetch('/api/schedule/generate', {
               method: 'POST',
