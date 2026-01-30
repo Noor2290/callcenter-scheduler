@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateSchedule } from '@/app/lib/scheduler';
+import supabaseServer from '@/app/lib/supabaseServer';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,6 +18,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   try {
     const started = Date.now();
+    const sb = supabaseServer();
 
     let body: any = {};
     try {
@@ -32,11 +34,79 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Request body must include year and month' }, { status: 400 });
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // جلب lastWeekShifts من الشهر السابق لضمان استمرار الشفت عبر حدود الشهر
+    // ═══════════════════════════════════════════════════════════════════
+    let prevYear = Number(finalYear);
+    let prevMonth = Number(finalMonth) - 1;
+    if (prevMonth < 1) { prevMonth = 12; prevYear -= 1; }
+
+    // جلب سجل الشهر السابق
+    const { data: prevMonthRow } = await sb
+      .from('months')
+      .select('id')
+      .eq('year', prevYear)
+      .eq('month', prevMonth)
+      .single();
+
+    let lastWeekShifts: Record<string, 'Morning' | 'Evening'> | undefined;
+
+    if (prevMonthRow) {
+      // جلب assignments الشهر السابق
+      const { data: prevAssignments } = await sb
+        .from('assignments')
+        .select('employee_id, date, symbol')
+        .eq('month_id', prevMonthRow.id)
+        .order('date', { ascending: true });
+
+      if (prevAssignments && prevAssignments.length > 0) {
+        // استخراج آخر 7 تواريخ فعلية
+        const allDates = Array.from(new Set(prevAssignments.map(a => a.date))).sort();
+        const lastWeekDates = allDates.slice(-7);
+
+        // جلب الموظفات
+        const { data: emps } = await sb.from('employees').select('id');
+
+        lastWeekShifts = {};
+        for (const emp of emps ?? []) {
+          const empId = String(emp.id);
+          for (let i = lastWeekDates.length - 1; i >= 0; i--) {
+            const d = lastWeekDates[i];
+            const row = prevAssignments.find(r => String(r.employee_id) === empId && r.date === d);
+            if (!row) continue;
+            const symbol = (row.symbol || '').toUpperCase();
+            // Morning shifts: MA1, MA2, M2, PT4
+            if (symbol.startsWith('M') || symbol === 'PT4') {
+              lastWeekShifts[empId] = 'Morning';
+              break;
+            }
+            // Evening shifts: EA1, E5, E2, MA4, PT5
+            if (symbol.startsWith('E') || symbol === 'PT5' || symbol === 'MA4') {
+              lastWeekShifts[empId] = 'Evening';
+              break;
+            }
+          }
+        }
+        console.log(`[generate] lastWeekShifts from ${prevYear}-${prevMonth}:`, Object.keys(lastWeekShifts).length, 'employees');
+      }
+    }
+
+    // جلب weekStartDay من الإعدادات
+    const { data: settingsData } = await sb.from('settings').select('key, value');
+    let weekStartDay = 6; // السبت افتراضياً
+    if (settingsData) {
+      for (const s of settingsData) {
+        if (s.key === 'weekStartDay') weekStartDay = Number(s.value);
+      }
+    }
+
     const result = await generateSchedule({
       year: Number(finalYear),
       month: Number(finalMonth),
       preview,
-      seed: Number(seed)
+      seed: Number(seed),
+      lastWeekShifts,
+      weekStartDay
     });
 
     const durationMs = Date.now() - started;
