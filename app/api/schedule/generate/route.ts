@@ -105,6 +105,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    console.log(`[generate] Calling generateSchedule with:`);
+    console.log(`  - year: ${finalYear}, month: ${finalMonth}`);
+    console.log(`  - lastWeekShifts: ${lastWeekShifts ? Object.keys(lastWeekShifts).length + ' employees' : 'undefined'}`);
+    console.log(`  - weekStartDay: ${weekStartDay}`);
+    
     const result = await generateSchedule({
       year: Number(finalYear),
       month: Number(finalMonth),
