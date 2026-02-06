@@ -301,6 +301,11 @@ export async function generateSchedule({
     !e.name.toLowerCase().includes('tooq')
   );
   
+  // لوج للتشخيص: عرض كل الموظفات وتصنيفهم
+  console.log(`[DEBUG] allEmployees: ${allEmployees.map(e => `${e.name}(${e.id})`).join(', ')}`);
+  console.log(`[DEBUG] regularEmployees: ${regularEmployees.map(e => `${e.name}(${e.id})`).join(', ')}`);
+  console.log(`[DEBUG] rotatingEmployees: ${rotatingEmployees.map(e => `${e.name}(${e.id})`).join(', ')}`);
+  
   // ═══════════════════════════════════════════════════════════════════
   // نظام التوزيع الديناميكي بالأولوية
   // ═══════════════════════════════════════════════════════════════════
@@ -423,8 +428,9 @@ export async function generateSchedule({
   const weeklyShifts = new Map<number, Map<string, ShiftType>>();
   
   // تتبع الشفت الأسبوعي لكل موظفة (للاستخدام في بناء الجدول اليومي)
+  // مهم: يجب إضافة كل الموظفات (وليس فقط regularEmployees)
   const empWeeklyShift = new Map<string, Map<number, ShiftType>>();
-  for (const emp of regularEmployees) {
+  for (const emp of allEmployees) {
     empWeeklyShift.set(String(emp.id), new Map());
   }
   
