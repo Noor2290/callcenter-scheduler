@@ -84,7 +84,9 @@ export async function POST(req: NextRequest) {
     
     // لوج للتشخيص: عرض كل الموظفات في قاعدة البيانات
     console.log(`[IMPORT] عدد الموظفات في DB: ${emps?.length || 0}`);
-    console.log(`[IMPORT] الموظفات:`, (emps || []).map(e => `${(e as any).name}(${e.id})`).join(', '));
+    console.log(`[IMPORT] الموظفات:`, (emps || []).map(e => `${(e as any).name}(id:${e.id}, code:${e.code})`).join(', '));
+    console.log(`[IMPORT] byCode:`, Array.from(byCode.entries()).join(', '));
+    console.log(`[IMPORT] byName:`, Array.from(byName.entries()).join(', '));
 
     // Determine month days
     const daysInMonth = new Date(year, month, 0).getDate();
