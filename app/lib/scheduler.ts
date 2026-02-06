@@ -460,29 +460,36 @@ export async function generateSchedule({
     // ═══════════════════════════════════════════════════════════════════
     // الأسبوع الأول المشترك: نستخدم الشفت مباشرة من lastWeekShifts بدون عكس
     // ═══════════════════════════════════════════════════════════════════
-    if (isFirstWeek && isSharedWeek && lastWeekShifts && Object.keys(lastWeekShifts).length > 0) {
-      // البحث في lastWeekShifts بكل الطرق الممكنة
-      let shiftFromPrevMonth: 'Morning' | 'Evening' | undefined = undefined;
-      
-      // طريقة 1: المفتاح كما هو
-      if (lastWeekShifts[empId]) {
-        shiftFromPrevMonth = lastWeekShifts[empId];
-      }
-      // طريقة 2: البحث في كل المفاتيح
-      if (!shiftFromPrevMonth) {
-        for (const key of Object.keys(lastWeekShifts)) {
-          if (String(key) === String(empId) || key === empId) {
-            shiftFromPrevMonth = lastWeekShifts[key];
-            break;
+    if (isFirstWeek && isSharedWeek) {
+      // محاولة 1: البحث في lastWeekShifts
+      if (lastWeekShifts && Object.keys(lastWeekShifts).length > 0) {
+        let shiftFromPrevMonth: 'Morning' | 'Evening' | undefined = undefined;
+        
+        // البحث بالمفتاح مباشرة
+        if (lastWeekShifts[empId]) {
+          shiftFromPrevMonth = lastWeekShifts[empId];
+        }
+        // البحث في كل المفاتيح
+        if (!shiftFromPrevMonth) {
+          for (const key of Object.keys(lastWeekShifts)) {
+            if (String(key) === String(empId) || key === empId) {
+              shiftFromPrevMonth = lastWeekShifts[key];
+              break;
+            }
           }
+        }
+        
+        if (shiftFromPrevMonth) {
+          console.log(`[WEEK ${weekIndex}] ${empId}: SHARED WEEK -> keeping ${shiftFromPrevMonth}`);
+          return { empId, nextShift: shiftFromPrevMonth };
         }
       }
       
-      if (shiftFromPrevMonth) {
-        console.log(`[WEEK ${weekIndex}] ${empId}: SHARED WEEK -> keeping ${shiftFromPrevMonth}`);
-        return { empId, nextShift: shiftFromPrevMonth };
-      } else {
-        console.log(`[WEEK ${weekIndex}] ${empId}: SHARED WEEK but NO shift found`);
+      // محاولة 2: استخدام lastShiftType بدون عكس (لأنه أسبوع مشترك)
+      const currentShift = lastShiftType.get(empId);
+      if (currentShift) {
+        console.log(`[WEEK ${weekIndex}] ${empId}: SHARED WEEK -> using lastShiftType ${currentShift} (no inversion)`);
+        return { empId, nextShift: currentShift };
       }
     }
     
