@@ -147,8 +147,17 @@ export async function POST(req: NextRequest) {
       const codeStr = typeof codeVal === 'number' ? String(codeVal) : String(codeVal || '').trim();
       const nameStr = norm(nameVal);
       
-      // البحث عن الموظفة بالكود أولاً
+      // البحث عن الموظفة بالكود (العمود B) أولاً
       let empId = byCode.get(codeStr);
+      
+      // إذا لم نجد، نبحث بالكود في العمود A (قد يكون الكود في عمود الاسم)
+      if (!empId && nameVal) {
+        const nameAsCode = String(nameVal).trim();
+        empId = byCode.get(nameAsCode);
+        if (empId) {
+          console.log(`[IMPORT] Found by code in name column: "${nameAsCode}" -> ID: ${empId}`);
+        }
+      }
       
       // إذا لم نجد بالكود، نبحث بالاسم
       if (!empId && nameStr) {
