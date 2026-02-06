@@ -67,6 +67,11 @@ export default function ScheduleGrid() {
   // تحديث الـ grid من البيانات
   function updateGridFromData(json: MonthData) {
     setData(json);
+    
+    // لوج للتشخيص
+    console.log('[UI] updateGridFromData - employees:', json.employees.length, json.employees.map(e => `${e.name}(${e.id})`));
+    console.log('[UI] updateGridFromData - assignments:', json.assignments.length);
+    
     const g: Record<string, Record<string, string>> = {};
     for (const emp of json.employees) {
       g[String(emp.id)] = {};  // تأكد من أنه string
