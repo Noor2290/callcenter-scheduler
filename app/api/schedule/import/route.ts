@@ -147,31 +147,46 @@ export async function POST(req: NextRequest) {
       const codeStr = typeof codeVal === 'number' ? String(codeVal) : String(codeVal || '').trim();
       const nameStr = norm(nameVal);
       
-      // البحث عن الموظفة بالكود (العمود B) أولاً
-      let empId = byCode.get(codeStr);
+      // محاولات متعددة للبحث عن الموظفة
+      let empId: string | undefined = undefined;
       
-      // إذا لم نجد، نبحث بالكود في العمود A (قد يكون الكود في عمود الاسم)
+      // 1. البحث بالكود في العمود B
+      if (!empId && codeStr) {
+        empId = byCode.get(codeStr);
+        if (empId) console.log(`[IMPORT] Row ${r}: Found by code B "${codeStr}" -> ${empId}`);
+      }
+      
+      // 2. البحث بالكود في العمود A (قد يكون الكود في عمود الاسم)
       if (!empId && nameVal) {
         const nameAsCode = String(nameVal).trim();
         empId = byCode.get(nameAsCode);
-        if (empId) {
-          console.log(`[IMPORT] Found by code in name column: "${nameAsCode}" -> ID: ${empId}`);
-        }
+        if (empId) console.log(`[IMPORT] Row ${r}: Found by code A "${nameAsCode}" -> ${empId}`);
       }
       
-      // إذا لم نجد بالكود، نبحث بالاسم
+      // 3. البحث بالاسم الكامل
       if (!empId && nameStr) {
         empId = byName.get(nameStr);
+        if (empId) console.log(`[IMPORT] Row ${r}: Found by name "${nameStr}" -> ${empId}`);
       }
       
-      // إذا لم نجد، نحاول البحث بالاسم الجزئي (contains)
+      // 4. البحث بالاسم الجزئي
       if (!empId && nameStr) {
         for (const [name, id] of byName.entries()) {
           if (name.includes(nameStr) || nameStr.includes(name)) {
             empId = id;
-            console.log(`[IMPORT] Partial match: "${nameVal}" -> "${name}" (ID: ${id})`);
+            console.log(`[IMPORT] Row ${r}: Found by partial name "${nameStr}" -> "${name}" -> ${empId}`);
             break;
           }
+        }
+      }
+      
+      // 5. البحث بالـ ID الرقمي مباشرة (إذا كان الكود هو نفس الـ ID)
+      if (!empId && codeStr) {
+        // البحث في قائمة الموظفات بالـ ID مباشرة
+        const foundEmp = (emps || []).find(e => String(e.id) === codeStr);
+        if (foundEmp) {
+          empId = String(foundEmp.id);
+          console.log(`[IMPORT] Row ${r}: Found by direct ID "${codeStr}" -> ${empId}`);
         }
       }
       
