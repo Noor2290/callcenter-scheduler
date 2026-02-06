@@ -125,6 +125,8 @@ export async function POST(req: NextRequest) {
     
     const skippedRows: string[] = [];
     
+    console.log(`[IMPORT] عدد الصفوف في Excel: ${ws.rowCount}`);
+    
     for (let r = firstDataRow; r <= ws.rowCount; r++) {
       const row = ws.getRow(r);
       
@@ -132,8 +134,14 @@ export async function POST(req: NextRequest) {
       const nameVal = row.getCell(nameCol).value;
       const codeVal = row.getCell(idCol).value;
       
+      // لوج لكل صف
+      console.log(`[IMPORT] Row ${r}: name="${nameVal}", code="${codeVal}"`);
+      
       // تخطي الصفوف الفارغة
-      if (!nameVal && !codeVal) continue;
+      if (!nameVal && !codeVal) {
+        console.log(`[IMPORT] Row ${r}: SKIPPED (فارغ)`);
+        continue;
+      }
       
       // تحويل الكود لنص
       const codeStr = typeof codeVal === 'number' ? String(codeVal) : String(codeVal || '').trim();
