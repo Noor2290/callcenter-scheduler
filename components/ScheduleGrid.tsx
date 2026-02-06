@@ -69,11 +69,12 @@ export default function ScheduleGrid() {
     setData(json);
     const g: Record<string, Record<string, string>> = {};
     for (const emp of json.employees) {
-      g[emp.id] = {};
+      g[String(emp.id)] = {};  // تأكد من أنه string
     }
     for (const a of json.assignments) {
-      if (!g[a.employee_id]) g[a.employee_id] = {};
-      g[a.employee_id][a.date] = a.symbol;
+      const empId = String(a.employee_id);  // تأكد من أنه string
+      if (!g[empId]) g[empId] = {};
+      g[empId][a.date] = a.symbol;
     }
     setGrid(g);
     setGridOriginal(JSON.parse(JSON.stringify(g)));
@@ -695,7 +696,7 @@ export default function ScheduleGrid() {
                   <td className="p-2 text-center text-slate-500 border-l border-slate-200">{emp.code || '-'}</td>
                   {headerDays.map((dStr, idx) => {
                     const iso = toISO(data.month.year, data.month.month, Number(dStr));
-                    const val = grid[emp.id]?.[iso] ?? '';
+                    const val = grid[String(emp.id)]?.[iso] ?? '';
                     const upper = val.toString().toUpperCase();
 
                     // تلوين بحسب نوع الشفت
