@@ -78,9 +78,13 @@ export async function POST(req: NextRequest) {
       .toLowerCase();
     for (const e of emps ?? []) {
       const codeStr = e.code != null ? String(e.code).trim() : '';
-      if (codeStr) byCode.set(codeStr, e.id);
-      if ((e as any).name) byName.set(norm((e as any).name), e.id);
+      if (codeStr) byCode.set(codeStr, String(e.id));
+      if ((e as any).name) byName.set(norm((e as any).name), String(e.id));
     }
+    
+    // لوج للتشخيص: عرض كل الموظفات في قاعدة البيانات
+    console.log(`[IMPORT] عدد الموظفات في DB: ${emps?.length || 0}`);
+    console.log(`[IMPORT] الموظفات:`, (emps || []).map(e => `${(e as any).name}(${e.id})`).join(', '));
 
     // Determine month days
     const daysInMonth = new Date(year, month, 0).getDate();
