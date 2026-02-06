@@ -143,6 +143,17 @@ export async function POST(req: NextRequest) {
         empId = byName.get(nameStr);
       }
       
+      // إذا لم نجد، نحاول البحث بالاسم الجزئي (contains)
+      if (!empId && nameStr) {
+        for (const [name, id] of byName.entries()) {
+          if (name.includes(nameStr) || nameStr.includes(name)) {
+            empId = id;
+            console.log(`[IMPORT] Partial match: "${nameVal}" -> "${name}" (ID: ${id})`);
+            break;
+          }
+        }
+      }
+      
       // تسجيل الصفوف التي لم يتم التعرف عليها
       if (!empId) {
         skippedRows.push(`Row ${r}: name="${nameVal}", code="${codeStr}"`);

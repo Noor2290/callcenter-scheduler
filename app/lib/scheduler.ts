@@ -193,6 +193,7 @@ export async function generateSchedule({
   const { data: empData } = await sb.from("employees").select("*").order("name");
   const allEmployees: Employee[] = (empData || []) as Employee[];
   console.log(`[1] عدد الموظفات: ${allEmployees.length}`);
+  console.log(`[1] أسماء الموظفات:`, allEmployees.map(e => `${e.name} (${e.id})`).join(', '));
 
   // تحميل الإعدادات (المصدر الوحيد للحقيقة)
   const { data: settingsData } = await sb.from("settings").select("key, value");
