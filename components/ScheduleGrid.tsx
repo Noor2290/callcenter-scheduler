@@ -545,10 +545,17 @@ export default function ScheduleGrid() {
             console.log('[UI] ALL lastWeekShifts:', JSON.stringify(lastWeekShifts));
             console.log('[UI] ══════════════════════════════════════════════════');
             
+            // عند توليد الشهر التالي، lastWeekShifts من الشهر الحالي تصبح firstWeekShifts للشهر التالي
+            // لأن الأسبوع الأخير من الشهر الحالي يكمل في أول أسبوع من الشهر التالي
             const res = await fetch('/api/schedule/generate', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ year: nextYear, month: nextMonth, lastWeekShifts })
+              body: JSON.stringify({ 
+                year: nextYear, 
+                month: nextMonth, 
+                firstWeekShifts: lastWeekShifts,  // شفتات آخر أسبوع من الشهر الحالي = أول أسبوع من الشهر التالي
+                lastWeekShifts  // أيضًا نمرره للتوافق
+              })
             });
             const json = await res.json();
             if (json && json.assignments) {
