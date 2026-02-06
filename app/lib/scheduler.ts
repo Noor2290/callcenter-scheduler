@@ -443,6 +443,19 @@ export async function generateSchedule({
     }
   }
   
+  // لوج مهم للتشخيص
+  if (isFirstWeek) {
+    console.log(`[SCHEDULER] ══════════════════════════════════════════════════`);
+    console.log(`[SCHEDULER] isFirstWeek: ${isFirstWeek}`);
+    console.log(`[SCHEDULER] isSharedWeek: ${isSharedWeek}`);
+    console.log(`[SCHEDULER] lastWeekShifts exists: ${!!lastWeekShifts}`);
+    console.log(`[SCHEDULER] lastWeekShifts count: ${lastWeekShifts ? Object.keys(lastWeekShifts).length : 0}`);
+    if (lastWeekShifts) {
+      console.log(`[SCHEDULER] lastWeekShifts ALL:`, JSON.stringify(lastWeekShifts));
+    }
+    console.log(`[SCHEDULER] ══════════════════════════════════════════════════`);
+  }
+  
   let nextShifts = weekEmployees.map(empId => {
     // ═══════════════════════════════════════════════════════════════════
     // الأسبوع الأول المشترك: نستخدم الشفت مباشرة من lastWeekShifts بدون عكس
