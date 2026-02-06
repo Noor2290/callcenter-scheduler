@@ -980,6 +980,11 @@ export async function generateSchedule({
     symbol: r.symbol
   }));
 
+  // لوج نهائي للتأكد من عدد الموظفات والسجلات
+  console.log(`[FINAL] عدد الموظفات: ${allEmployees.length}`);
+  console.log(`[FINAL] عدد السجلات: ${rows.length}`);
+  console.log(`[FINAL] أسماء الموظفات:`, allEmployees.map(e => e.name));
+  
   return {
     ok: true,
     preview,
