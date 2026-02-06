@@ -82,6 +82,7 @@ export default function ScheduleGrid() {
   // لا توليد تلقائي عند تحميل الصفحة، فقط عرض الجدول المستورد أو عند الضغط على زر التوليد
 
   // توليد جدول جديد (preview mode - لا يُحفظ في DB)
+  // يحافظ على الشفتات في بداية/نهاية الشهر فقط إذا كان هناك أسبوع مشترك
   async function generateNewSchedule() {
     if (!settings.year || !settings.month) {
       setMsg('الرجاء تحديد السنة والشهر أولاً');
@@ -92,8 +93,83 @@ export default function ScheduleGrid() {
     setMsg('جاري توليد جدول جديد...'); // رسالة مؤقتة أثناء التوليد فقط
     
     try {
-      // ✅ seed عشوائي جديد كل مرة = جدول مختلف كل مرة
+      // ✅ seed عشوائي جديد كل مرة = توزيع مختلف للأوفات والشفتات في منتصف الشهر
       const newSeed = Date.now() + Math.random() * 1000000;
+      
+      // ═══════════════════════════════════════════════════════════════════
+      // حساب هل هناك أسبوع مشترك في البداية أو النهاية
+      // الأسبوع يبدأ السبت (6) وينتهي الخميس (4)، الجمعة (5) أوف
+      // ═══════════════════════════════════════════════════════════════════
+      const year = settings.year;
+      const month = settings.month;
+      const firstDayOfMonth = new Date(year, month - 1, 1);
+      const lastDayOfMonth = new Date(year, month, 0);
+      
+      // هل الشهر يبدأ يوم السبت؟ إذا لا، فهناك أسبوع مشترك مع الشهر السابق
+      const hasSharedWeekAtStart = firstDayOfMonth.getDay() !== 6; // 6 = السبت
+      
+      // هل الشهر ينتهي يوم الخميس أو الجمعة؟ إذا لا، فهناك أسبوع مشترك مع الشهر التالي
+      const lastDayOfWeek = lastDayOfMonth.getDay();
+      const hasSharedWeekAtEnd = lastDayOfWeek !== 4 && lastDayOfWeek !== 5; // 4=خميس, 5=جمعة
+      
+      console.log(`[generateNewSchedule] hasSharedWeekAtStart: ${hasSharedWeekAtStart}, hasSharedWeekAtEnd: ${hasSharedWeekAtEnd}`);
+      
+      // ═══════════════════════════════════════════════════════════════════
+      // استخراج الشفتات من الجدول المعروض حاليًا (إذا كان موجودًا)
+      // ═══════════════════════════════════════════════════════════════════
+      let firstWeekShifts: Record<string, 'Morning' | 'Evening'> | undefined = undefined;
+      let lastWeekShifts: Record<string, 'Morning' | 'Evening'> | undefined = undefined;
+      
+      if (data && data.assignments && data.assignments.length > 0) {
+        const allDates = Array.from(new Set(data.assignments.map(a => a.date))).sort();
+        
+        // دالة مساعدة لاستخراج الشفت من الرمز
+        const getShiftFromSymbol = (symbol: string): 'Morning' | 'Evening' | null => {
+          const s = (symbol || '').toUpperCase();
+          if (s.startsWith('M') || s === 'PT4') return 'Morning';
+          if (s.startsWith('E') || s === 'PT5' || s === 'MA4') return 'Evening';
+          return null;
+        };
+        
+        // استخراج شفتات أول أسبوع (إذا كان هناك أسبوع مشترك في البداية)
+        if (hasSharedWeekAtStart) {
+          const firstWeekDates = allDates.slice(0, 7);
+          firstWeekShifts = {};
+          for (const emp of data.employees) {
+            const empId = String(emp.id);
+            for (const d of firstWeekDates) {
+              const assignment = data.assignments.find(a => String(a.employee_id) === empId && a.date === d);
+              if (!assignment) continue;
+              const shift = getShiftFromSymbol(assignment.symbol);
+              if (shift) {
+                firstWeekShifts[empId] = shift;
+                break;
+              }
+            }
+          }
+          console.log('[generateNewSchedule] Preserving first week shifts:', Object.keys(firstWeekShifts).length, 'employees');
+        }
+        
+        // استخراج شفتات آخر أسبوع (إذا كان هناك أسبوع مشترك في النهاية)
+        if (hasSharedWeekAtEnd) {
+          const lastWeekDates = allDates.slice(-7);
+          lastWeekShifts = {};
+          for (const emp of data.employees) {
+            const empId = String(emp.id);
+            for (let i = lastWeekDates.length - 1; i >= 0; i--) {
+              const d = lastWeekDates[i];
+              const assignment = data.assignments.find(a => String(a.employee_id) === empId && a.date === d);
+              if (!assignment) continue;
+              const shift = getShiftFromSymbol(assignment.symbol);
+              if (shift) {
+                lastWeekShifts[empId] = shift;
+                break;
+              }
+            }
+          }
+          console.log('[generateNewSchedule] Preserving last week shifts:', Object.keys(lastWeekShifts).length, 'employees');
+        }
+      }
       
       const res = await fetch('/api/schedule/generate', {
         method: 'POST',
@@ -102,7 +178,9 @@ export default function ScheduleGrid() {
           year: settings.year, 
           month: settings.month,
           preview: true,  // ❌ لا يحفظ في DB أبداً
-          seed: newSeed
+          seed: newSeed,
+          firstWeekShifts,  // ✅ شفتات أول أسبوع (إذا كان هناك أسبوع مشترك)
+          lastWeekShifts    // ✅ شفتات آخر أسبوع (إذا كان هناك أسبوع مشترك)
         })
       });
       

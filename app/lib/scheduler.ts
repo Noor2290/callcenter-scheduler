@@ -151,6 +151,7 @@ export async function generateSchedule({
   month,
   preview = false,
   seed,
+  firstWeekShifts,
   lastWeekShifts,
   weekStartDay
 }: {
@@ -158,7 +159,8 @@ export async function generateSchedule({
   month: number;
   preview?: boolean;  // true = لا يحفظ في DB
   seed?: number;      // seed عشوائي لتوليد جداول مختلفة
-  lastWeekShifts?: Record<string, 'Morning' | 'Evening'>;
+  firstWeekShifts?: Record<string, 'Morning' | 'Evening'>;  // شفتات أول أسبوع (للتثبيت)
+  lastWeekShifts?: Record<string, 'Morning' | 'Evening'>;   // شفتات آخر أسبوع (للتثبيت)
   weekStartDay?: number;
 }) {
   const sb = supabaseServer();
@@ -331,16 +333,27 @@ export async function generateSchedule({
   const prevMonthEnd = new Date(year, month - 1, 0);
   
   // ═══════════════════════════════════════════════════════════════════
-  // هل أول يوم في الشهر الجديد ليس يوم السبت؟
-  // إذا كان أول يوم في الشهر الجديد ليس السبت، فهذا يعني أننا في منتصف أسبوع بدأ في الشهر السابق
+  // حساب الأسابيع المشتركة في البداية والنهاية
   // ═══════════════════════════════════════════════════════════════════
   const firstDayOfWeek = firstDay.getDay(); // 0=أحد, 1=اثنين, ..., 6=سبت
-  const isSharedWeek = firstDayOfWeek !== weekStart; // إذا لم يبدأ الشهر يوم السبت، فهو أسبوع مشترك
+  const hasSharedWeekAtStart = firstDayOfWeek !== weekStart; // إذا لم يبدأ الشهر يوم السبت، فهناك أسبوع مشترك في البداية
+  
+  // حساب هل هناك أسبوع مشترك في النهاية
+  const lastDayOfMonth = allDays[allDays.length - 1];
+  const lastDayOfWeekNum = lastDayOfMonth.getDay();
+  const hasSharedWeekAtEnd = lastDayOfWeekNum !== 4 && lastDayOfWeekNum !== 5; // 4=خميس, 5=جمعة
+  
+  // للتوافق مع الكود القديم (isSharedWeek = hasSharedWeekAtStart)
+  const isSharedWeek = hasSharedWeekAtStart;
   
   // للتوافق مع الكود القديم
   const firstWeekStart = new Date(firstDay);
   while (firstWeekStart.getDay() !== weekStart) firstWeekStart.setDate(firstWeekStart.getDate() - 1);
   const firstWeekEnd = new Date(firstWeekStart); firstWeekEnd.setDate(firstWeekStart.getDate() + 6);
+  
+  console.log(`[SCHEDULER] hasSharedWeekAtStart: ${hasSharedWeekAtStart}, hasSharedWeekAtEnd: ${hasSharedWeekAtEnd}`);
+  console.log(`[SCHEDULER] firstWeekShifts: ${firstWeekShifts ? Object.keys(firstWeekShifts).length + ' employees' : 'undefined'}`);
+  console.log(`[SCHEDULER] lastWeekShifts: ${lastWeekShifts ? Object.keys(lastWeekShifts).length + ' employees' : 'undefined'}`);
 
   // تتبع آخر شفت لكل موظفة في التناوب (أسبوع صباح، أسبوع مساء)
   // نستخدم Map لحفظ آخر شفت لكل موظفة، ويتم التهيئة خارج حلقة الأسابيع
@@ -358,21 +371,39 @@ export async function generateSchedule({
   for (let i = 0; i < rotatingEmployees.length; i++) {
     const emp = rotatingEmployees[i];
     const empId = String(emp.id);
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // الأولوية 1: إذا تم تمرير firstWeekShifts (لتثبيت أول أسبوع)
+    // ═══════════════════════════════════════════════════════════════════
+    if (firstWeekShifts && hasSharedWeekAtStart) {
+      const fixedShift = firstWeekShifts[empId];
+      if (fixedShift) {
+        // تثبيت الشفت من الجدول المعروض (لأول أسبوع مشترك)
+        lastShiftType.set(empId, fixedShift);
+        continue;
+      }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // الأولوية 2: استخدام lastWeekShifts من الشهر السابق (للتناوب)
+    // ═══════════════════════════════════════════════════════════════════
     if (lastWeekShifts && weeks.length > 0) {
       const prev = lastWeekShifts[empId];
       if (isSharedWeek && prev) {
         // أسبوع مشترك: نكمّل نفس الشفت (لن يتم عكسه في الأسبوع الأول)
         lastShiftType.set(empId, prev);
+        continue;
       } else if (!isSharedWeek && prev) {
         // الشهر يبدأ بأسبوع جديد (السبت): نبدأ بالمعكوس مباشرة
         lastShiftType.set(empId, prev === 'Morning' ? 'Evening' : 'Morning');
-      } else {
-        // لا يوجد شفت سابق: استخدم المنطق الافتراضي
-        lastShiftType.set(empId, i % 2 === 0 ? "Morning" : "Evening");
+        continue;
       }
-    } else {
-      lastShiftType.set(empId, i % 2 === 0 ? "Morning" : "Evening");
     }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // الافتراضي: توزيع عشوائي
+    // ═══════════════════════════════════════════════════════════════════
+    lastShiftType.set(empId, i % 2 === 0 ? "Morning" : "Evening");
   }
   
   console.log(`[3] weekStart: ${weekStart} (${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][weekStart]})`);
@@ -426,7 +457,12 @@ export async function generateSchedule({
   // - الأسابيع التالية: نعكس الشفت عن الأسبوع السابق
   // ═══════════════════════════════════════════════════════════════════
   const isFirstWeek = weekIndex === weeks[0];
-  const shouldKeepSameShift = isFirstWeek && isSharedWeek && lastWeekShifts && Object.keys(lastWeekShifts).length > 0;
+  const isLastWeek = weekIndex === weeks[weeks.length - 1];
+  // هل نحافظ على نفس الشفتات؟ (أول أسبوع مشترك مع وجود شفتات مثبتة)
+  const hasFirstWeekFixed = firstWeekShifts && Object.keys(firstWeekShifts).length > 0;
+  const hasLastWeekFixed = lastWeekShifts && Object.keys(lastWeekShifts).length > 0;
+  const shouldKeepSameShift = (isFirstWeek && hasSharedWeekAtStart && (hasFirstWeekFixed || hasLastWeekFixed)) ||
+                              (isLastWeek && hasSharedWeekAtEnd && hasLastWeekFixed);
   
   console.log(`[WEEK ${weekIndex}] isFirstWeek: ${isFirstWeek}, shouldKeepSameShift: ${shouldKeepSameShift}, isSharedWeek: ${isSharedWeek}`);
   if (isFirstWeek) {
@@ -458,39 +494,27 @@ export async function generateSchedule({
   
   let nextShifts = weekEmployees.map(empId => {
     // ═══════════════════════════════════════════════════════════════════
-    // الأسبوع الأول المشترك: نستخدم الشفت مباشرة من lastWeekShifts بدون عكس
+    // الأسبوع الأول المشترك: نستخدم firstWeekShifts أو lastWeekShifts
     // ═══════════════════════════════════════════════════════════════════
-    if (isFirstWeek && isSharedWeek) {
-      // محاولة 1: البحث في lastWeekShifts
-      if (lastWeekShifts && Object.keys(lastWeekShifts).length > 0) {
-        let shiftFromPrevMonth: 'Morning' | 'Evening' | undefined = undefined;
-        
-        // البحث بالمفتاح مباشرة
-        if (lastWeekShifts[empId]) {
-          shiftFromPrevMonth = lastWeekShifts[empId];
-        }
-        // البحث في كل المفاتيح
-        if (!shiftFromPrevMonth) {
-          for (const key of Object.keys(lastWeekShifts)) {
-            if (String(key) === String(empId) || key === empId) {
-              shiftFromPrevMonth = lastWeekShifts[key];
-              break;
-            }
-          }
-        }
-        
-        if (shiftFromPrevMonth) {
-          console.log(`[WEEK ${weekIndex}] ${empId}: SHARED WEEK -> keeping ${shiftFromPrevMonth}`);
-          return { empId, nextShift: shiftFromPrevMonth };
-        }
+    if (isFirstWeek && hasSharedWeekAtStart) {
+      // الأولوية 1: firstWeekShifts (من الجدول المعروض)
+      if (firstWeekShifts && firstWeekShifts[empId]) {
+        console.log(`[WEEK ${weekIndex}] ${empId}: FIRST WEEK FIXED -> ${firstWeekShifts[empId]}`);
+        return { empId, nextShift: firstWeekShifts[empId] };
       }
-      
-      // محاولة 2: استخدام lastShiftType بدون عكس (لأنه أسبوع مشترك)
-      const currentShift = lastShiftType.get(empId);
-      if (currentShift) {
-        console.log(`[WEEK ${weekIndex}] ${empId}: SHARED WEEK -> using lastShiftType ${currentShift} (no inversion)`);
-        return { empId, nextShift: currentShift };
+      // الأولوية 2: lastWeekShifts (من الشهر السابق)
+      if (lastWeekShifts && lastWeekShifts[empId]) {
+        console.log(`[WEEK ${weekIndex}] ${empId}: SHARED WEEK -> keeping ${lastWeekShifts[empId]}`);
+        return { empId, nextShift: lastWeekShifts[empId] };
       }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // الأسبوع الأخير المشترك: نستخدم lastWeekShifts (من الجدول المعروض)
+    // ═══════════════════════════════════════════════════════════════════
+    if (isLastWeek && hasSharedWeekAtEnd && lastWeekShifts && lastWeekShifts[empId]) {
+      console.log(`[WEEK ${weekIndex}] ${empId}: LAST WEEK FIXED -> ${lastWeekShifts[empId]}`);
+      return { empId, nextShift: lastWeekShifts[empId] };
     }
     
     // ═══════════════════════════════════════════════════════════════════

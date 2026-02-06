@@ -52,15 +52,27 @@ export async function POST(req: NextRequest) {
 
     console.log(`[generate] prevMonthRow:`, prevMonthRow, 'error:', prevMonthErr?.message);
 
-    // إذا تم تمرير lastWeekShifts من الواجهة، نستخدمه مباشرة (أولوية عليا)
+    // ═══════════════════════════════════════════════════════════════════
+    // استقبال شفتات أول وآخر أسبوع من الواجهة (للحفاظ على الأسابيع المشتركة)
+    // ═══════════════════════════════════════════════════════════════════
+    let firstWeekShifts: Record<string, 'Morning' | 'Evening'> | undefined = body.firstWeekShifts;
     let lastWeekShifts: Record<string, 'Morning' | 'Evening'> | undefined = body.lastWeekShifts;
     
+    console.log(`[generate] body.firstWeekShifts:`, body.firstWeekShifts ? Object.keys(body.firstWeekShifts).length + ' employees' : 'undefined');
     console.log(`[generate] body.lastWeekShifts:`, body.lastWeekShifts ? Object.keys(body.lastWeekShifts).length + ' employees' : 'undefined');
     
+    // إذا تم تمرير firstWeekShifts من الواجهة، نستخدمه لتثبيت أول أسبوع
+    if (firstWeekShifts && Object.keys(firstWeekShifts).length > 0) {
+      console.log(`[generate] ✅ Using firstWeekShifts from request body:`, Object.keys(firstWeekShifts).length, 'employees');
+    }
+    
+    // إذا تم تمرير lastWeekShifts من الواجهة، نستخدمه لتثبيت آخر أسبوع
     if (lastWeekShifts && Object.keys(lastWeekShifts).length > 0) {
       console.log(`[generate] ✅ Using lastWeekShifts from request body:`, Object.keys(lastWeekShifts).length, 'employees');
-      console.log(`[generate] Sample from body:`, Object.entries(lastWeekShifts).slice(0, 5));
-    } else if (prevMonthRow) {
+    }
+    
+    // إذا لم يتم تمرير firstWeekShifts، نحاول جلبها من الشهر السابق في DB
+    if ((!firstWeekShifts || Object.keys(firstWeekShifts).length === 0) && prevMonthRow) {
       // جلب assignments الشهر السابق
       const { data: prevAssignments } = await sb
         .from('assignments')
@@ -113,6 +125,7 @@ export async function POST(req: NextRequest) {
 
     console.log(`[generate] Calling generateSchedule with:`);
     console.log(`  - year: ${finalYear}, month: ${finalMonth}`);
+    console.log(`  - firstWeekShifts: ${firstWeekShifts ? Object.keys(firstWeekShifts).length + ' employees' : 'undefined'}`);
     console.log(`  - lastWeekShifts: ${lastWeekShifts ? Object.keys(lastWeekShifts).length + ' employees' : 'undefined'}`);
     console.log(`  - weekStartDay: ${weekStartDay}`);
     
@@ -121,7 +134,8 @@ export async function POST(req: NextRequest) {
       month: Number(finalMonth),
       preview,
       seed: Number(seed),
-      lastWeekShifts,
+      firstWeekShifts,  // شفتات أول أسبوع (للتثبيت إذا كان هناك أسبوع مشترك)
+      lastWeekShifts,   // شفتات آخر أسبوع (للتثبيت إذا كان هناك أسبوع مشترك)
       weekStartDay
     });
 
