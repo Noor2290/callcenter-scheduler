@@ -149,29 +149,16 @@ export async function POST(req: NextRequest) {
       const codeStr = typeof codeVal === 'number' ? String(codeVal) : String(codeVal || '').trim();
       const nameStr = norm(nameVal);
       
-      // محاولات متعددة للبحث عن الموظفة
+      // محاولات متعددة للبحث عن الموظفة (الاسم أولاً لأنه أكثر موثوقية)
       let empId: string | undefined = undefined;
       
-      // 1. البحث بالكود في العمود B
-      if (!empId && codeStr) {
-        empId = byCode.get(codeStr);
-        if (empId) console.log(`[IMPORT] Row ${r}: Found by code B "${codeStr}" -> ${empId}`);
-      }
-      
-      // 2. البحث بالكود في العمود A (قد يكون الكود في عمود الاسم)
-      if (!empId && nameVal) {
-        const nameAsCode = String(nameVal).trim();
-        empId = byCode.get(nameAsCode);
-        if (empId) console.log(`[IMPORT] Row ${r}: Found by code A "${nameAsCode}" -> ${empId}`);
-      }
-      
-      // 3. البحث بالاسم الكامل
+      // 1. البحث بالاسم الكامل (أولوية قصوى)
       if (!empId && nameStr) {
         empId = byName.get(nameStr);
         if (empId) console.log(`[IMPORT] Row ${r}: Found by name "${nameStr}" -> ${empId}`);
       }
       
-      // 4. البحث بالاسم الجزئي
+      // 2. البحث بالاسم الجزئي
       if (!empId && nameStr) {
         for (const [name, id] of byName.entries()) {
           if (name.includes(nameStr) || nameStr.includes(name)) {
@@ -182,9 +169,21 @@ export async function POST(req: NextRequest) {
         }
       }
       
+      // 3. البحث بالكود في العمود B
+      if (!empId && codeStr) {
+        empId = byCode.get(codeStr);
+        if (empId) console.log(`[IMPORT] Row ${r}: Found by code B "${codeStr}" -> ${empId}`);
+      }
+      
+      // 4. البحث بالكود في العمود A (قد يكون الكود في عمود الاسم)
+      if (!empId && nameVal) {
+        const nameAsCode = String(nameVal).trim();
+        empId = byCode.get(nameAsCode);
+        if (empId) console.log(`[IMPORT] Row ${r}: Found by code A "${nameAsCode}" -> ${empId}`);
+      }
+      
       // 5. البحث بالـ ID الرقمي مباشرة (إذا كان الكود هو نفس الـ ID)
       if (!empId && codeStr) {
-        // البحث في قائمة الموظفات بالـ ID مباشرة
         const foundEmp = (emps || []).find(e => String(e.id) === codeStr);
         if (foundEmp) {
           empId = String(foundEmp.id);
@@ -194,9 +193,12 @@ export async function POST(req: NextRequest) {
       
       // تسجيل الصفوف التي لم يتم التعرف عليها
       if (!empId) {
+        console.log(`[IMPORT] ⚠️ Row ${r} NOT MATCHED: name="${nameVal}" (normalized: "${nameStr}"), code="${codeStr}"`);
         skippedRows.push(`Row ${r}: name="${nameVal}", code="${codeStr}"`);
         continue;
       }
+      
+      console.log(`[IMPORT] ✅ Row ${r} MATCHED: name="${nameVal}" -> empId=${empId}`);
       
       importedEmployees++;
       
