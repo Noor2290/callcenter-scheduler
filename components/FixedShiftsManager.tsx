@@ -306,8 +306,19 @@ export default function FixedShiftsManager() {
           <div className="space-y-3">
             {fixedShifts.map((fs) => {
               const formatDate = (dateStr: string) => {
-                const date = new Date(dateStr);
-                return date.toLocaleDateString('ar-SA', { day: 'numeric', month: 'short' });
+                // التحقق من صحة التاريخ
+                if (!dateStr) return '-';
+                
+                try {
+                  const date = new Date(dateStr);
+                  // التحقق من أن التاريخ صالح
+                  if (isNaN(date.getTime())) return '-';
+                  
+                  return date.toLocaleDateString('ar-SA', { day: 'numeric', month: 'short', year: 'numeric' });
+                } catch (e) {
+                  console.error('Error formatting date:', dateStr, e);
+                  return '-';
+                }
               };
               
               return (

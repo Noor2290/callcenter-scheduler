@@ -23,11 +23,13 @@ export async function GET() {
     
     console.log('[API] Raw data:', data);
     
-    // Return data without employee info for now
+    // Return data with dates
     const fixedShifts = (data || []).map(item => ({
       id: item.id,
       employee_id: item.employee_id,
       shift_type: item.shift_type,
+      start_date: item.start_date,
+      end_date: item.end_date,
       employee: null // We'll handle this in the frontend
     }));
     
