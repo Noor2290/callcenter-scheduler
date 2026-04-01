@@ -1,22 +1,57 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f1f5f9; /* slate-100 - أفتح قليلاً */
-  --foreground: #0f172a; /* slate-900 */
-  --brand: #0d9488; /* teal-600 */
-  --brand-600: #14b8a6; /* teal-500 */
-  --brand-700: #0f766e; /* teal-700 */
-  --brand-50: #f0fdfa; /* teal-50 */
-  --brand-100: #ccfbf1; /* teal-100 */
-  --muted: #64748b; /* slate-500 */
+  /* Base System Colors */
+  --background: #f1f5f9;
+  --foreground: #0f172a;
+  --brand: #0d9488;
+  --brand-600: #14b8a6;
+  --brand-700: #0f766e;
+  --brand-50: #f0fdfa;
+  --brand-100: #ccfbf1;
+  --muted: #64748b;
   --card: #ffffff;
-  --border: #e2e8f0; /* slate-200 */
+  --border: #e2e8f0;
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
   --radius: 12px;
   --radius-lg: 16px;
+  
+  /* Enterprise Shift Colors */
+  --morning-primary: #3B82F6;
+  --morning-light: #DBEAFE;
+  --morning-medium: #93C5FD;
+  --morning-border: #60A5FA;
+  --morning-text: #1E40AF;
+  
+  --evening-primary: #6366F1;
+  --evening-light: #E0E7FF;
+  --evening-medium: #A5B4FC;
+  --evening-border: #818CF8;
+  --evening-text: #3730A3;
+  
+  --off-bg: #F1F5F9;
+  --off-border: #CBD5E1;
+  --off-text: #64748B;
+  
+  --fixed-bg: #F3E8FF;
+  --fixed-light: #FAF5FF;
+  --fixed-border: #A855F7;
+  --fixed-text: #6B21A8;
+  
+  --between-bg: #FEF3C7;
+  --between-border: #F59E0B;
+  --between-text: #92400E;
+  
+  --vacation-bg: #DCFCE7;
+  --vacation-border: #22C55E;
+  --vacation-text: #166534;
+  
+  --week-separator: #E2E8F0;
+  --week-label-bg: #F8FAFC;
+  --week-label-text: #475569;
 }
 
 body {
@@ -229,39 +264,96 @@ select:focus {
   opacity: 1;
 }
 
-/* Shift colors - Pastel & Professional */
+/* Enterprise Shift Styles */
+.shift-cell {
+  min-height: 48px;
+  padding: 10px 6px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  transition: all 0.2s ease;
+  border-radius: 6px;
+}
+
+.shift-cell:hover {
+  transform: scale(1.03);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
 .shift-morning { 
-  background: #fef3c7 !important; /* amber-100 */
-  transition: all 0.2s ease;
+  background: var(--morning-light) !important;
+  border: 1.5px solid var(--morning-border) !important;
+  color: var(--morning-text) !important;
 }
+
 .shift-morning:hover { 
-  background: #fde68a !important; /* amber-200 */
-  transform: scale(1.02);
+  background: var(--morning-medium) !important;
 }
+
 .shift-evening { 
-  background: #ddd6fe !important; /* violet-200 */
-  transition: all 0.2s ease;
+  background: var(--evening-light) !important;
+  border: 1.5px solid var(--evening-border) !important;
+  color: var(--evening-text) !important;
 }
+
 .shift-evening:hover { 
-  background: #c4b5fd !important; /* violet-300 */
-  transform: scale(1.02);
+  background: var(--evening-medium) !important;
 }
+
 .shift-off { 
-  background: #f1f5f9 !important; /* slate-100 */
+  background: var(--off-bg) !important;
+  border: 1.5px solid var(--off-border) !important;
+  color: var(--off-text) !important;
 }
+
 .shift-vacation { 
-  background: #fae8ff !important; /* fuchsia-100 */
-  transition: all 0.2s ease;
+  background: var(--vacation-bg) !important;
+  border: 1.5px solid var(--vacation-border) !important;
+  color: var(--vacation-text) !important;
 }
+
 .shift-vacation:hover { 
-  background: #f5d0fe !important; /* fuchsia-200 */
+  background: #BBF7D0 !important;
 }
+
 .shift-between { 
-  background: #d1fae5 !important; /* emerald-100 */
-  transition: all 0.2s ease;
+  background: var(--between-bg) !important;
+  border: 1.5px solid var(--between-border) !important;
+  color: var(--between-text) !important;
 }
+
 .shift-between:hover { 
-  background: #a7f3d0 !important; /* emerald-200 */
+  background: #FDE68A !important;
+}
+
+/* Fixed Shift Indicator */
+.shift-fixed {
+  box-shadow: 0 0 0 3px var(--fixed-bg) !important;
+  border: 2px solid var(--fixed-border) !important;
+  background: var(--fixed-light) !important;
+}
+
+/* Week Separator & Label */
+.week-separator {
+  height: 32px;
+  background: linear-gradient(to bottom, transparent, var(--week-separator), transparent);
+  position: relative;
+  margin: 12px 0;
+}
+
+.week-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--week-label-bg);
+  color: var(--week-label-text);
+  padding: 6px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  letter-spacing: 0.025em;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
 }
 
 /* Status badges */
