@@ -113,12 +113,22 @@ export default function ScheduleGrid() {
       const savedRes = await fetch(`/api/schedule/${settings.year}/${settings.month}`);
       const savedJson = await savedRes.json();
       
-      if (savedRes.ok && savedJson.assignments && savedJson.assignments.length > 0) {
-        updateGridFromData(savedJson);
-        setIsPreviewMode(false);
-        setMsg('✅ تم تحميل الجدول المحفوظ');
+      if (savedRes.ok && savedJson.assignments && savedJson.assignments.length > 0 && savedJson.employees?.length > 0) {
+        // التحقق من اكتمال الجدول المحفوظ
+        const empCount = savedJson.employees.length;
+        const daysInSavedMonth = new Set(savedJson.assignments.map((a: {date: string}) => a.date)).size;
+        const expectedCount = empCount * daysInSavedMonth;
+        const isComplete = savedJson.assignments.length >= expectedCount * 0.95; // 95% كحد أدنى
+        
+        if (isComplete) {
+          updateGridFromData(savedJson);
+          setIsPreviewMode(false);
+          setMsg('✅ تم تحميل الجدول المحفوظ');
+        } else {
+          // الجدول المحفوظ ناقص - توليد جديد
+          await generateNewScheduleWithVariation();
+        }
       } else {
-        // لا يوجد جدول محفوظ - توليد جديد تلقائياً
         await generateNewScheduleWithVariation();
       }
     } catch {

@@ -348,10 +348,9 @@ export async function generateSchedule({
     console.log(`    - ⚠️ Tooq Almaliki غير موجودة!`);
   }
   
-  // الموظفات المشاركات في التناوب (بدون Tooq)
+  // الموظفات المشاركات في التناوب (بدون Tooq) - يستخدم ID الفعلي من DB
   const rotatingEmployees = regularEmployees.filter(e => 
-    String(e.id) !== TOOQ_ID && 
-    !e.name.toLowerCase().includes('tooq')
+    !tooqEmployee || String(e.id) !== String(tooqEmployee.id)
   );
   
   // لوج للتشخيص: عرض كل الموظفات وتصنيفهم
@@ -959,8 +958,8 @@ export async function generateSchedule({
       const empIdNum = Number(emp.id);
       let symbol: string;
       
-      // 🔒 HARD RULE 1: توفيق المالكي (3979) → دائماً Evening
-      if (HARD_RULES.fixedEvening.includes(empIdNum)) {
+      // 🔒 HARD RULE 1: توق → دائماً Evening (بالID الفعلي من DB)
+      if (tooqEmployee && empId === String(tooqEmployee.id)) {
         if (vacationSet.has(`${empId}_${dateISO}`)) {
           symbol = VAC;
         } else if (weekOffMap.get(empId) === dateISO) {
@@ -969,8 +968,8 @@ export async function generateSchedule({
           symbol = getShiftSymbol(emp, "Evening");
         }
       }
-      // 🔒 HARD RULE 2: مروة (3864) → السبت OFF دائماً
-      else if (HARD_RULES.fixedSaturdayOff.includes(empIdNum) && dow === 6) {
+      // 🔒 HARD RULE 2: مروة → السبت OFF (بالID الفعلي من DB)
+      else if (marwaEmployee && empId === String(marwaEmployee.id) && dow === 6) {
         symbol = OFF;
       }
       // 1. موظفة Between Shift
@@ -983,18 +982,7 @@ export async function generateSchedule({
           symbol = BETWEEN;
         }
       }
-      // 2. Tooq Almaliki - مسائية دائماً (مقارنة بالاسم أيضاً)
-      else if (empId === TOOQ_ID || emp.name.toLowerCase().includes('tooq')) {
-        if (vacationSet.has(`${empId}_${dateISO}`)) {
-          symbol = VAC;
-        } else if (weekOffMap.get(empId) === dateISO) {
-          symbol = OFF;
-        } else {
-          // دائماً مسائية
-          symbol = getShiftSymbol(emp, "Evening");
-        }
-      }
-      // 3. إجازة V
+      // 2. إجازة V
       else if (vacationSet.has(`${empId}_${dateISO}`)) {
         symbol = VAC;
       }
@@ -1151,31 +1139,33 @@ export async function generateSchedule({
     }
   }
   
-  // 🔒 التحقق من HARD RULES
+  // 🔒 التحقق من HARD RULES (باستخدام IDs الفعلية من DB)
   console.log(`\n[6.6] VALIDATION: التحقق من HARD RULES...`);
   
-  // HARD RULE 1: توفيق المالكي (3979) دائماً Evening
-  const tawfiqId = '3979';
-  const tawfiqAssignments = rows.filter(r => r.employee_id === tawfiqId && getDay(new Date(r.date)) !== 5);
-  const tawfiqNonEvening = tawfiqAssignments.filter(r => 
-    r.symbol !== VAC && r.symbol !== OFF && !Object.values(EVENING_SHIFTS).includes(r.symbol)
-  );
-  
-  if (tawfiqNonEvening.length > 0) {
-    throw new Error(`❌ HARD RULE VIOLATION: توفيق المالكي لديه ${tawfiqNonEvening.length} شفت غير Evening!`);
-  } else {
-    console.log(`    ✅ توفيق المالكي: كل الشفتات Evening`);
+  // HARD RULE 1: توق دائماً Evening
+  if (tooqEmployee) {
+    const tooqId = String(tooqEmployee.id);
+    const tooqAssignments = rows.filter(r => r.employee_id === tooqId && getDay(new Date(r.date)) !== 5);
+    const tooqNonEvening = tooqAssignments.filter(r => 
+      r.symbol !== VAC && r.symbol !== OFF && !Object.values(EVENING_SHIFTS).includes(r.symbol)
+    );
+    if (tooqNonEvening.length > 0) {
+      throw new Error(`❌ HARD RULE VIOLATION: توق (${tooqEmployee.name}) لديها ${tooqNonEvening.length} شفت غير Evening!`);
+    } else {
+      console.log(`    ✅ توق (${tooqEmployee.name}): كل الشفتات Evening`);
+    }
   }
   
-  // HARD RULE 2: مروة (3864) كل سبت OFF
-  const marwaId2 = '3864';
-  const marwaSaturdays = rows.filter(r => r.employee_id === marwaId2 && getDay(new Date(r.date)) === 6);
-  const marwaNonOff = marwaSaturdays.filter(r => r.symbol !== OFF);
-  
-  if (marwaNonOff.length > 0) {
-    throw new Error(`❌ HARD RULE VIOLATION: مروة الرحيلي لديها ${marwaNonOff.length} سبت غير OFF!`);
-  } else {
-    console.log(`    ✅ مروة الرحيلي: كل السبت OFF (${marwaSaturdays.length} يوم)`);
+  // HARD RULE 2: مروة كل سبت OFF
+  if (marwaEmployee) {
+    const mId = String(marwaEmployee.id);
+    const marwaSaturdays = rows.filter(r => r.employee_id === mId && getDay(new Date(r.date)) === 6);
+    const marwaNonOff = marwaSaturdays.filter(r => r.symbol !== OFF);
+    if (marwaNonOff.length > 0) {
+      throw new Error(`❌ HARD RULE VIOLATION: مروة (${marwaEmployee.name}) لديها ${marwaNonOff.length} سبت غير OFF!`);
+    } else {
+      console.log(`    ✅ مروة (${marwaEmployee.name}): كل السبت OFF (${marwaSaturdays.length} يوم)`);
+    }
   }
   
   console.log(`\n    ✅✅✅ VALIDATION PASSED - النظام production-ready! ✅✅✅`);
