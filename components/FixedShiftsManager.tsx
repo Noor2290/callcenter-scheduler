@@ -16,8 +16,8 @@ interface FixedShift {
   id: string;
   employee_id: string;
   shift_type: 'Morning' | 'Evening';
-  start_date: string | null;
-  end_date: string | null;
+  start_date: string; // Required - all shifts must have a period
+  end_date: string; // Required - all shifts must have a period
   employee: Employee;
 }
 
@@ -28,7 +28,6 @@ export default function FixedShiftsManager() {
   const [selectedShift, setSelectedShift] = useState<'Morning' | 'Evening'>('Morning');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [isPermanent, setIsPermanent] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -99,30 +98,24 @@ export default function FixedShiftsManager() {
       return;
     }
 
-    // Validate dates if not permanent
-    if (!isPermanent) {
-      if (!startDate || !endDate) {
-        setError('Please select both start and end dates');
-        return;
-      }
-      if (new Date(startDate) > new Date(endDate)) {
-        setError('End date must be after start date');
-        return;
-      }
+    // Validate dates (required for all fixed shifts)
+    if (!startDate || !endDate) {
+      setError('يجب تحديد تاريخ البداية والنهاية');
+      return;
+    }
+    if (new Date(startDate) > new Date(endDate)) {
+      setError('تاريخ النهاية يجب أن يكون بعد تاريخ البداية');
+      return;
     }
 
     try {
       console.log('[FixedShifts] Sending POST request...');
-      const requestBody: any = {
+      const requestBody = {
         employee_id: selectedEmployee,
-        shift_type: selectedShift
+        shift_type: selectedShift,
+        start_date: startDate,
+        end_date: endDate
       };
-      
-      // Add dates if not permanent
-      if (!isPermanent) {
-        requestBody.start_date = startDate;
-        requestBody.end_date = endDate;
-      }
       
       console.log('[FixedShifts] Request body:', requestBody);
       
@@ -147,7 +140,9 @@ export default function FixedShiftsManager() {
         
         setFixedShifts([...fixedShifts, newFixedShift]);
         setSelectedEmployee('');
-        setSuccess('Fixed shift added successfully');
+        setStartDate('');
+        setEndDate('');
+        setSuccess('تم إضافة الشفت الثابت بنجاح');
         setError('');
         
         // Reload data to ensure consistency
@@ -254,67 +249,51 @@ export default function FixedShiftsManager() {
             </select>
           </div>
 
-          {/* Permanent or Temporary Toggle */}
-          <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl">
-            <input
-              type="checkbox"
-              id="isPermanent"
-              checked={isPermanent}
-              onChange={(e) => {
-                setIsPermanent(e.target.checked);
-                if (e.target.checked) {
-                  setStartDate('');
-                  setEndDate('');
-                }
-              }}
-              className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
-            />
-            <label htmlFor="isPermanent" className="text-sm font-medium text-slate-700 cursor-pointer">
-              تثبيت دائم (بدون فترة زمنية محددة)
-            </label>
-          </div>
-
-          {/* Date Range (only show if not permanent) */}
-          {!isPermanent && (
-            <div className="space-y-3 p-4 bg-blue-50 rounded-xl border border-blue-200">
-              <div className="flex items-center gap-2 text-sm font-medium text-blue-800 mb-2">
-                <span>📅</span>
-                <span>فترة التثبيت المؤقت</span>
+          {/* Date Range (Required) */}
+          <div className="space-y-3 p-4 bg-blue-50 rounded-xl border border-blue-200">
+            <div className="flex items-center gap-2 text-sm font-medium text-blue-800 mb-2">
+              <span>📅</span>
+              <span>فترة التثبيت (إلزامية)</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  من تاريخ <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                />
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">من تاريخ</label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">إلى تاريخ</label>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                  />
-                </div>
-              </div>
-              <div className="text-xs text-blue-700 mt-2">
-                ℹ️ بعد انتهاء الفترة، سيعود النظام تلقائيًا للتناوب الأسبوعي مع منع تكرار نفس الشفت
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  إلى تاريخ <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                />
               </div>
             </div>
-          )}
+            <div className="text-xs text-blue-700 mt-2">
+              ℹ️ بعد انتهاء الفترة، سيعود النظام تلقائيًا للتناوب الأسبوعي مع منع تكرار نفس الشفت
+            </div>
+          </div>
 
           {/* Add Button */}
           <button
             onClick={addFixedShift}
-            disabled={!selectedEmployee}
+            disabled={!selectedEmployee || !startDate || !endDate}
             className="w-full px-5 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-medium shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
           >
             <Plus />
-            <span>إضافة شفت {isPermanent ? 'دائم' : 'مؤقت'}</span>
+            <span>إضافة شفت ثابت</span>
           </button>
         </div>
       </div>
@@ -326,9 +305,7 @@ export default function FixedShiftsManager() {
           
           <div className="space-y-3">
             {fixedShifts.map((fs) => {
-              const isPermanent = !fs.start_date && !fs.end_date;
-              const formatDate = (dateStr: string | null) => {
-                if (!dateStr) return '';
+              const formatDate = (dateStr: string) => {
                 const date = new Date(dateStr);
                 return date.toLocaleDateString('ar-SA', { day: 'numeric', month: 'short' });
               };
@@ -356,23 +333,14 @@ export default function FixedShiftsManager() {
                         {fs.employee.code && `كود: ${fs.employee.code} • `}
                         الشفت: {fs.shift_type === 'Morning' ? 'صباحي' : 'مسائي'}
                       </div>
-                      {!isPermanent && fs.start_date && fs.end_date && (
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full font-medium">
-                            مؤقت
-                          </span>
-                          <span className="text-xs text-slate-500">
-                            {formatDate(fs.start_date)} → {formatDate(fs.end_date)}
-                          </span>
-                        </div>
-                      )}
-                      {isPermanent && (
-                        <div className="mt-1">
-                          <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full font-medium">
-                            دائم
-                          </span>
-                        </div>
-                      )}
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full font-medium">
+                          📅
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          {formatDate(fs.start_date)} → {formatDate(fs.end_date)}
+                        </span>
+                      </div>
                     </div>
                   </div>
                   

@@ -101,8 +101,8 @@ export interface Database {
           id: string;
           employee_id: string;
           shift_type: 'Morning' | 'Evening';
-          start_date: string | null; // ISO date or null for permanent
-          end_date: string | null; // ISO date or null for permanent
+          start_date: string; // ISO date - REQUIRED
+          end_date: string; // ISO date - REQUIRED
           created_at: string;
           updated_at: string;
         };
@@ -110,8 +110,8 @@ export interface Database {
           id?: string;
           employee_id: string;
           shift_type: 'Morning' | 'Evening';
-          start_date?: string | null;
-          end_date?: string | null;
+          start_date: string; // REQUIRED
+          end_date: string; // REQUIRED
           created_at?: string;
           updated_at?: string;
         };
@@ -119,8 +119,8 @@ export interface Database {
           id?: string;
           employee_id?: string;
           shift_type?: 'Morning' | 'Evening';
-          start_date?: string | null;
-          end_date?: string | null;
+          start_date?: string;
+          end_date?: string;
           created_at?: string;
           updated_at?: string;
         };

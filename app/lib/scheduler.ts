@@ -195,13 +195,10 @@ export async function generateSchedule({
   console.log(`[1] عدد الموظفات: ${allEmployees.length}`);
   console.log(`[1] أسماء الموظفات:`, allEmployees.map(e => `${e.name} (${e.id})`).join(', '));
 
-  // تحميل الشفتات الثابتة (مع دعم التثبيت المؤقت)
+  // تحميل الشفتات الثابتة (جميعها مؤقتة بفترة زمنية)
   const { data: fixedShiftsData } = await sb.from("fixed_shifts").select("*");
   
-  // Map للشفتات الثابتة الدائمة
-  const fixedShifts = new Map<string, 'Morning' | 'Evening'>();
-  
-  // Map للشفتات الثابتة المؤقتة (مع التواريخ)
+  // Map للشفتات الثابتة المؤقتة (جميعها لها تواريخ)
   const temporaryFixedShifts = new Map<string, {
     shift_type: 'Morning' | 'Evening';
     start_date: string;
@@ -209,21 +206,16 @@ export async function generateSchedule({
   }>();
   
   for (const fs of fixedShiftsData || []) {
-    // إذا كان تثبيت دائم (بدون تواريخ)
-    if (!fs.start_date || !fs.end_date) {
-      fixedShifts.set(fs.employee_id, fs.shift_type);
-    } else {
-      // إذا كان تثبيت مؤقت (مع تواريخ)
-      temporaryFixedShifts.set(fs.employee_id, {
-        shift_type: fs.shift_type,
-        start_date: fs.start_date,
-        end_date: fs.end_date
-      });
-    }
+    // جميع الشفتات الآن مؤقتة بفترة زمنية محددة
+    temporaryFixedShifts.set(fs.employee_id, {
+      shift_type: fs.shift_type,
+      start_date: fs.start_date,
+      end_date: fs.end_date
+    });
   }
-  console.log(`[1] الشفتات الثابتة:`, Array.from(fixedShifts.entries()).map(([id, shift]) => {
+  console.log(`[1] الشفتات الثابتة المؤقتة:`, Array.from(temporaryFixedShifts.entries()).map(([id, data]) => {
     const emp = allEmployees.find(e => e.id === id);
-    return `${emp?.name || id} → ${shift}`;
+    return `${emp?.name || id} → ${data.shift_type} (${data.start_date} إلى ${data.end_date})`;
   }).join(', '));
 
   // تحميل الإعدادات (المصدر الوحيد للحقيقة)
@@ -253,8 +245,9 @@ export async function generateSchedule({
   }
   
   // التحقق من أن الشفتات الثابتة لا تتجاوز التغطية المطلوبة
-  const fixedMorningCount = Array.from(fixedShifts.values()).filter(s => s === 'Morning').length;
-  const fixedEveningCount = Array.from(fixedShifts.values()).filter(s => s === 'Evening').length;
+  // ملاحظة: الشفتات المؤقتة قد تكون فعالة أو لا حسب التاريخ، لكن للبساطة نفترض أنها كلها فعالة
+  const fixedMorningCount = Array.from(temporaryFixedShifts.values()).filter(s => s.shift_type === 'Morning').length;
+  const fixedEveningCount = Array.from(temporaryFixedShifts.values()).filter(s => s.shift_type === 'Evening').length;
   
   if (fixedMorningCount > settings.coverageMorning) {
     throw new Error(`عدد الموظفين الثابتين في الشفت الصباحي (${fixedMorningCount}) يتجاوز التغطية المطلوبة (${settings.coverageMorning})`);
@@ -503,17 +496,32 @@ export async function generateSchedule({
     shiftMap.set(String(tooqEmployee.id), "Evening");
   }
 
-  // تجهيز الموظفات القابلات للتناوب فقط (بدون الثابتات)
+  // تطبيق الشفتات الثابتة المؤقتة (إذا كانت فعالة في هذا الأسبوع)
+  // يجب التحقق من أن تاريخ الأسبوع يقع ضمن فترة التثبيت
+  const weekDays = weekDaysMap.get(weekIndex) || [];
+  const weekStartDate = weekDays[0] ? format(weekDays[0], 'yyyy-MM-dd') : '';
+  
+  // Map للشفتات الثابتة الفعالة في هذا الأسبوع
+  const activeFixedShifts = new Map<string, 'Morning' | 'Evening'>();
+  
+  for (const [empId, fixedData] of temporaryFixedShifts.entries()) {
+    // التحقق من أن هذا الأسبوع يقع ضمن فترة التثبيت
+    if (weekStartDate >= fixedData.start_date && weekStartDate <= fixedData.end_date) {
+      activeFixedShifts.set(empId, fixedData.shift_type);
+    }
+  }
+  
+  // تجهيز الموظفات القابلات للتناوب فقط (بدون الثابتات الفعالة)
   const weekEmployees = rotatingEmployees
-    .filter(e => !fixedShifts.has(String(e.id))) // استبعاد الموظفات ذات الشفتات الثابتة
+    .filter(e => !activeFixedShifts.has(String(e.id))) // استبعاد الموظفات ذات الشفتات الثابتة الفعالة
     .map(e => String(e.id));
   
-  // تطبيق الشفتات الثابتة
-  console.log(`[WEEK ${weekIndex}] جاري تطبيق الشفتات الثابتة...`);
+  // تطبيق الشفتات الثابتة الفعالة
+  console.log(`[WEEK ${weekIndex}] جاري تطبيق الشفتات الثابتة الفعالة...`);
   console.log(`[WEEK ${weekIndex}] عدد rotatingEmployees: ${rotatingEmployees.length}`);
-  console.log(`[WEEK ${weekIndex}] fixedShifts:`, Array.from(fixedShifts.entries()));
+  console.log(`[WEEK ${weekIndex}] activeFixedShifts:`, Array.from(activeFixedShifts.entries()));
   
-  for (const [empId, shiftType] of fixedShifts.entries()) {
+  for (const [empId, shiftType] of activeFixedShifts.entries()) {
     console.log(`[WEEK ${weekIndex}] محاولة تطبيق شفت ثابت للموظف ${empId} → ${shiftType}`);
     
     // البحث عن الموظف في allEmployees أولاً
