@@ -9,12 +9,11 @@ export enum VariationStrategy {
   ROTATION_OFFSET = 'rotation_offset',    // Shift starting point of rotation
   GROUP_SWAP = 'group_swap',              // Swap employee groups
   INVERSION = 'inversion',                // Flip Morning ↔ Evening
-  PATTERN_SHIFT = 'pattern_shift'         // Move schedule forward/backward
 }
 
 export interface VariationParams {
   strategy: VariationStrategy;
-  offset?: number;        // For ROTATION_OFFSET and PATTERN_SHIFT
+  offset?: number;        // For ROTATION_OFFSET
   groupSize?: number;     // For GROUP_SWAP
   seed?: number;          // For deterministic randomization
 }
@@ -42,9 +41,6 @@ export function applyVariation(
     
     case VariationStrategy.INVERSION:
       return applyInversion(baseSchedule);
-    
-    case VariationStrategy.PATTERN_SHIFT:
-      return applyPatternShift(baseSchedule, params.offset || 1);
     
     default:
       return baseSchedule;
@@ -188,46 +184,6 @@ function applyInversion(schedule: ScheduleData): ScheduleData {
 }
 
 /**
- * STRATEGY 4: Pattern Shift
- * Move entire schedule forward or backward by N weeks
- * Useful for adapting to different month start days
- */
-function applyPatternShift(
-  schedule: ScheduleData,
-  weekOffset: number
-): ScheduleData {
-  const { employeeIds, weeklyAssignments, fixedShifts } = schedule;
-  
-  const newWeeklyAssignments = new Map<number, Map<string, 'Morning' | 'Evening'>>();
-  const weekNumbers = Array.from(weeklyAssignments.keys()).sort((a, b) => a - b);
-  const totalWeeks = weekNumbers.length;
-  
-  weeklyAssignments.forEach((weekMap, oldWeekNum) => {
-    // Calculate new week number (with wrapping)
-    const oldIndex = weekNumbers.indexOf(oldWeekNum);
-    const newIndex = (oldIndex + weekOffset + totalWeeks) % totalWeeks;
-    const newWeekNum = weekNumbers[newIndex];
-    
-    const newWeekMap = new Map<string, 'Morning' | 'Evening'>();
-    
-    weekMap.forEach((shift, empId) => {
-      // Only shift if no fixed shift conflict
-      if (!hasFixedShiftForWeek(empId, newWeekNum, fixedShifts)) {
-        newWeekMap.set(empId, shift);
-      }
-    });
-    
-    newWeeklyAssignments.set(newWeekNum, newWeekMap);
-  });
-  
-  return {
-    employeeIds,
-    weeklyAssignments: newWeeklyAssignments,
-    fixedShifts
-  };
-}
-
-/**
  * Helper: Check if employee has fixed shift for a specific week
  */
 function hasFixedShiftForWeek(
@@ -250,8 +206,7 @@ export function getStrategyDescription(strategy: VariationStrategy): string {
   const descriptions = {
     [VariationStrategy.ROTATION_OFFSET]: 'تغيير نقطة بداية الدورة',
     [VariationStrategy.GROUP_SWAP]: 'تبديل مجموعات الموظفين',
-    [VariationStrategy.INVERSION]: 'عكس الشفتات (صباح ↔ مساء)',
-    [VariationStrategy.PATTERN_SHIFT]: 'تحريك الجدول أسبوع للأمام/الخلف'
+    [VariationStrategy.INVERSION]: 'عكس الشفتات (صباح ↔ مساء)'
   };
   
   return descriptions[strategy] || strategy;
@@ -264,7 +219,6 @@ export function getAllStrategies(): VariationStrategy[] {
   return [
     VariationStrategy.ROTATION_OFFSET,
     VariationStrategy.GROUP_SWAP,
-    VariationStrategy.INVERSION,
-    VariationStrategy.PATTERN_SHIFT
+    VariationStrategy.INVERSION
   ];
 }

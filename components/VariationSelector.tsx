@@ -59,7 +59,6 @@ export default function VariationSelector({ onGenerate, isGenerating }: Variatio
                   {strategy === VariationStrategy.ROTATION_OFFSET && '🔄'}
                   {strategy === VariationStrategy.GROUP_SWAP && '🔀'}
                   {strategy === VariationStrategy.INVERSION && '⇄'}
-                  {strategy === VariationStrategy.PATTERN_SHIFT && '⏩'}
                 </div>
                 <div className="flex-1">
                   <div className={`font-semibold text-sm ${
@@ -157,8 +156,7 @@ function getStrategyExplanation(strategy: VariationStrategy): string {
   const explanations = {
     [VariationStrategy.ROTATION_OFFSET]: 'تغيير نقطة البداية في دورة الموظفين',
     [VariationStrategy.GROUP_SWAP]: 'تبديل مجموعات الموظفين مع بعضهم',
-    [VariationStrategy.INVERSION]: 'عكس جميع الشفتات (صباح ↔ مساء)',
-    [VariationStrategy.PATTERN_SHIFT]: 'تحريك الجدول أسبوع كامل'
+    [VariationStrategy.INVERSION]: 'عكس جميع الشفتات (صباح ↔ مساء)'
   };
   
   return explanations[strategy] || '';
