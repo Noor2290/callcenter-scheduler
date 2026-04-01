@@ -101,6 +101,8 @@ export interface Database {
           id: string;
           employee_id: string;
           shift_type: 'Morning' | 'Evening';
+          start_date: string | null; // ISO date or null for permanent
+          end_date: string | null; // ISO date or null for permanent
           created_at: string;
           updated_at: string;
         };
@@ -108,6 +110,8 @@ export interface Database {
           id?: string;
           employee_id: string;
           shift_type: 'Morning' | 'Evening';
+          start_date?: string | null;
+          end_date?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -115,10 +119,19 @@ export interface Database {
           id?: string;
           employee_id?: string;
           shift_type?: 'Morning' | 'Evening';
+          start_date?: string | null;
+          end_date?: string | null;
           created_at?: string;
           updated_at?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "fixed_shifts_employee_id_fkey";
+            columns: ["employee_id"];
+            referencedRelation: "employees";
+            referencedColumns: ["id"];
+          }
+        ];
       };
       settings: {
         Row: { key: string; value: string | null };

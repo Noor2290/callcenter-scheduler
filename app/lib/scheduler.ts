@@ -195,11 +195,31 @@ export async function generateSchedule({
   console.log(`[1] عدد الموظفات: ${allEmployees.length}`);
   console.log(`[1] أسماء الموظفات:`, allEmployees.map(e => `${e.name} (${e.id})`).join(', '));
 
-  // تحميل الشفتات الثابتة
+  // تحميل الشفتات الثابتة (مع دعم التثبيت المؤقت)
   const { data: fixedShiftsData } = await sb.from("fixed_shifts").select("*");
+  
+  // Map للشفتات الثابتة الدائمة
   const fixedShifts = new Map<string, 'Morning' | 'Evening'>();
+  
+  // Map للشفتات الثابتة المؤقتة (مع التواريخ)
+  const temporaryFixedShifts = new Map<string, {
+    shift_type: 'Morning' | 'Evening';
+    start_date: string;
+    end_date: string;
+  }>();
+  
   for (const fs of fixedShiftsData || []) {
-    fixedShifts.set(fs.employee_id, fs.shift_type);
+    // إذا كان تثبيت دائم (بدون تواريخ)
+    if (!fs.start_date || !fs.end_date) {
+      fixedShifts.set(fs.employee_id, fs.shift_type);
+    } else {
+      // إذا كان تثبيت مؤقت (مع تواريخ)
+      temporaryFixedShifts.set(fs.employee_id, {
+        shift_type: fs.shift_type,
+        start_date: fs.start_date,
+        end_date: fs.end_date
+      });
+    }
   }
   console.log(`[1] الشفتات الثابتة:`, Array.from(fixedShifts.entries()).map(([id, shift]) => {
     const emp = allEmployees.find(e => e.id === id);

@@ -16,6 +16,8 @@ interface FixedShift {
   id: string;
   employee_id: string;
   shift_type: 'Morning' | 'Evening';
+  start_date: string | null;
+  end_date: string | null;
   employee: Employee;
 }
 
@@ -24,6 +26,9 @@ export default function FixedShiftsManager() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selectedEmployee, setSelectedEmployee] = useState('');
   const [selectedShift, setSelectedShift] = useState<'Morning' | 'Evening'>('Morning');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [isPermanent, setIsPermanent] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -94,18 +99,31 @@ export default function FixedShiftsManager() {
       return;
     }
 
-    // Check if employee already has a fixed shift
-    if (fixedShifts.some(fs => fs.employee_id === selectedEmployee)) {
-      setError('This employee already has a fixed shift');
-      return;
+    // Validate dates if not permanent
+    if (!isPermanent) {
+      if (!startDate || !endDate) {
+        setError('Please select both start and end dates');
+        return;
+      }
+      if (new Date(startDate) > new Date(endDate)) {
+        setError('End date must be after start date');
+        return;
+      }
     }
 
     try {
       console.log('[FixedShifts] Sending POST request...');
-      const requestBody = {
+      const requestBody: any = {
         employee_id: selectedEmployee,
         shift_type: selectedShift
       };
+      
+      // Add dates if not permanent
+      if (!isPermanent) {
+        requestBody.start_date = startDate;
+        requestBody.end_date = endDate;
+      }
+      
       console.log('[FixedShifts] Request body:', requestBody);
       
       const res = await fetch('/api/fixed-shifts', {
@@ -210,36 +228,93 @@ export default function FixedShiftsManager() {
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
         <h3 className="text-lg font-semibold text-slate-800 mb-4">إضافة شفت ثابت</h3>
         
-        <div className="flex flex-col sm:flex-row gap-4">
-          <select
-            value={selectedEmployee}
-            onChange={(e) => setSelectedEmployee(e.target.value)}
-            className="flex-1 px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-700"
-          >
-            <option value="">اختر الموظف</option>
-            {availableEmployees.map(emp => (
-              <option key={emp.id} value={emp.id}>
-                {emp.name} {emp.code && `(${emp.code})`}
-              </option>
-            ))}
-          </select>
+        <div className="space-y-4">
+          {/* Employee and Shift Selection */}
+          <div className="flex flex-col sm:flex-row gap-4">
+            <select
+              value={selectedEmployee}
+              onChange={(e) => setSelectedEmployee(e.target.value)}
+              className="flex-1 px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-700"
+            >
+              <option value="">اختر الموظف</option>
+              {employees.map(emp => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.name} {emp.code && `(${emp.code})`}
+                </option>
+              ))}
+            </select>
 
-          <select
-            value={selectedShift}
-            onChange={(e) => setSelectedShift(e.target.value as 'Morning' | 'Evening')}
-            className="px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-700"
-          >
-            <option value="Morning">صباحي</option>
-            <option value="Evening">مسائي</option>
-          </select>
+            <select
+              value={selectedShift}
+              onChange={(e) => setSelectedShift(e.target.value as 'Morning' | 'Evening')}
+              className="px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-700"
+            >
+              <option value="Morning">صباحي</option>
+              <option value="Evening">مسائي</option>
+            </select>
+          </div>
 
+          {/* Permanent or Temporary Toggle */}
+          <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl">
+            <input
+              type="checkbox"
+              id="isPermanent"
+              checked={isPermanent}
+              onChange={(e) => {
+                setIsPermanent(e.target.checked);
+                if (e.target.checked) {
+                  setStartDate('');
+                  setEndDate('');
+                }
+              }}
+              className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+            />
+            <label htmlFor="isPermanent" className="text-sm font-medium text-slate-700 cursor-pointer">
+              تثبيت دائم (بدون فترة زمنية محددة)
+            </label>
+          </div>
+
+          {/* Date Range (only show if not permanent) */}
+          {!isPermanent && (
+            <div className="space-y-3 p-4 bg-blue-50 rounded-xl border border-blue-200">
+              <div className="flex items-center gap-2 text-sm font-medium text-blue-800 mb-2">
+                <span>📅</span>
+                <span>فترة التثبيت المؤقت</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">من تاريخ</label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">إلى تاريخ</label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  />
+                </div>
+              </div>
+              <div className="text-xs text-blue-700 mt-2">
+                ℹ️ بعد انتهاء الفترة، سيعود النظام تلقائيًا للتناوب الأسبوعي مع منع تكرار نفس الشفت
+              </div>
+            </div>
+          )}
+
+          {/* Add Button */}
           <button
             onClick={addFixedShift}
             disabled={!selectedEmployee}
-            className="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-medium shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all"
+            className="w-full px-5 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-medium shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
           >
             <Plus />
-            <span>إضافة</span>
+            <span>إضافة شفت {isPermanent ? 'دائم' : 'مؤقت'}</span>
           </button>
         </div>
       </div>
@@ -250,36 +325,67 @@ export default function FixedShiftsManager() {
           <h3 className="text-lg font-semibold text-slate-800 mb-4">الشفتات الثابتة</h3>
           
           <div className="space-y-3">
-            {fixedShifts.map((fs) => (
-              <div
-                key={fs.id}
-                className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                    <span className="text-blue-600 font-semibold">
-                      {fs.shift_type === 'Morning' ? 'ص' : 'م'}
-                    </span>
-                  </div>
-                  <div>
-                    <div className="font-medium text-slate-800">
-                      {fs.employee.name}
-                    </div>
-                    <div className="text-sm text-slate-600">
-                      {fs.employee.code && `كود: ${fs.employee.code} • `}
-                      الشفت: {fs.shift_type === 'Morning' ? 'صباحي' : 'مسائي'}
-                    </div>
-                  </div>
-                </div>
-                
-                <button
-                  onClick={() => removeFixedShift(fs.id)}
-                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+            {fixedShifts.map((fs) => {
+              const isPermanent = !fs.start_date && !fs.end_date;
+              const formatDate = (dateStr: string | null) => {
+                if (!dateStr) return '';
+                const date = new Date(dateStr);
+                return date.toLocaleDateString('ar-SA', { day: 'numeric', month: 'short' });
+              };
+              
+              return (
+                <div
+                  key={fs.id}
+                  className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200 hover:border-slate-300 transition-colors"
                 >
-                  <Trash2 />
-                </button>
-              </div>
-            ))}
+                  <div className="flex items-center gap-4 flex-1">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                      fs.shift_type === 'Morning' ? 'bg-amber-100' : 'bg-indigo-100'
+                    }`}>
+                      <span className={`font-semibold ${
+                        fs.shift_type === 'Morning' ? 'text-amber-700' : 'text-indigo-700'
+                      }`}>
+                        {fs.shift_type === 'Morning' ? 'ص' : 'م'}
+                      </span>
+                    </div>
+                    <div className="flex-1">
+                      <div className="font-medium text-slate-800">
+                        {fs.employee.name}
+                      </div>
+                      <div className="text-sm text-slate-600">
+                        {fs.employee.code && `كود: ${fs.employee.code} • `}
+                        الشفت: {fs.shift_type === 'Morning' ? 'صباحي' : 'مسائي'}
+                      </div>
+                      {!isPermanent && fs.start_date && fs.end_date && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full font-medium">
+                            مؤقت
+                          </span>
+                          <span className="text-xs text-slate-500">
+                            {formatDate(fs.start_date)} → {formatDate(fs.end_date)}
+                          </span>
+                        </div>
+                      )}
+                      {isPermanent && (
+                        <div className="mt-1">
+                          <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full font-medium">
+                            دائم
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={() => removeFixedShift(fs.id)}
+                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    title="حذف"
+                  >
+                    <Trash2 />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

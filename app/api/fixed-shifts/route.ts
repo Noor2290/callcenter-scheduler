@@ -9,7 +9,7 @@ export async function GET() {
     // Very simple query - just get the raw data
     const { data, error } = await sb
       .from('fixed_shifts')
-      .select('id, employee_id, shift_type');
+      .select('id, employee_id, shift_type, start_date, end_date');
     
     if (error) {
       console.error('[API] Error fetching fixed shifts:', error);
@@ -43,8 +43,8 @@ export async function POST(req: Request) {
   try {
     console.log('[API] Fixed shifts POST called');
     const body = await req.json();
-    const { employee_id, shift_type } = body;
-    console.log('[API] Request body:', { employee_id, shift_type });
+    const { employee_id, shift_type, start_date, end_date } = body;
+    console.log('[API] Request body:', { employee_id, shift_type, start_date, end_date });
 
     if (!employee_id || !shift_type) {
       return NextResponse.json({ error: 'employee_id and shift_type are required' }, { status: 400 });
@@ -54,27 +54,46 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'shift_type must be Morning or Evening' }, { status: 400 });
     }
 
+    // Validate date range if provided
+    if ((start_date && !end_date) || (!start_date && end_date)) {
+      return NextResponse.json({ error: 'Both start_date and end_date must be provided for temporary fixing' }, { status: 400 });
+    }
+
+    if (start_date && end_date && new Date(start_date) > new Date(end_date)) {
+      return NextResponse.json({ error: 'end_date must be >= start_date' }, { status: 400 });
+    }
+
     const sb = supabaseServer();
     
-    // Simple insert
+    // Prepare data for insert
+    const fixedShiftData: any = {
+      employee_id,
+      shift_type,
+      start_date: start_date || null,
+      end_date: end_date || null
+    };
+
+    // Simple insert (allow multiple fixed shifts per employee with different date ranges)
     const { data, error } = await sb
       .from('fixed_shifts')
-      .upsert({ employee_id, shift_type }, { onConflict: 'employee_id' })
-      .select('id, employee_id, shift_type')
+      .insert(fixedShiftData)
+      .select('id, employee_id, shift_type, start_date, end_date')
       .single();
 
     if (error) {
-      console.error('[API] Error upserting fixed shift:', error);
+      console.error('[API] Error inserting fixed shift:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    console.log('[API] Fixed shift created/updated:', data);
+    console.log('[API] Fixed shift created:', data);
 
     return NextResponse.json({ 
       fixedShift: {
         id: data.id,
         employee_id: data.employee_id,
         shift_type: data.shift_type,
+        start_date: data.start_date,
+        end_date: data.end_date,
         employee: null // We'll handle this in frontend
       }
     });
