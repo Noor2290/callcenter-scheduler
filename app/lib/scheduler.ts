@@ -429,6 +429,11 @@ export async function generateSchedule({
   //   → نبدأ مباشرة بالشفت المعكوس
   // ═══════════════════════════════════════════════════════════════════
   
+  // ترتيب مخلوط بالـ seed للتوزيع الابتدائي (يُستخدم فقط في الـ fallback)
+  const shuffledForInit = smartShuffle([...rotatingEmployees], actualSeed);
+  const shuffledInitIdx = new Map<string, number>();
+  shuffledForInit.forEach((emp, idx) => shuffledInitIdx.set(String(emp.id), idx));
+
   for (let i = 0; i < rotatingEmployees.length; i++) {
     const emp = rotatingEmployees[i];
     const empId = String(emp.id);
@@ -473,9 +478,10 @@ export async function generateSchedule({
     }
     
     // ═══════════════════════════════════════════════════════════════════
-    // الافتراضي: توزيع عشوائي
+    // الافتراضي: توزيع عشوائي حقيقي بالـ seed
     // ═══════════════════════════════════════════════════════════════════
-    lastShiftType.set(empId, i % 2 === 0 ? "Morning" : "Evening");
+    const seedIdx = shuffledInitIdx.get(empId) ?? i;
+    lastShiftType.set(empId, seedIdx % 2 === 0 ? "Morning" : "Evening");
   }
   
   console.log(`[3] weekStart: ${weekStart} (${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][weekStart]})`);
@@ -606,7 +612,13 @@ export async function generateSchedule({
     console.log(`[SCHEDULER] ══════════════════════════════════════════════════`);
   }
   
-  let nextShifts = weekEmployees.map(empId => {
+  // في الأسابيع الحرة (غير المقيدة): نخلط ترتيب الموظفين بالـ seed
+  // هذا يجعل coverage rebalancing يختار موظفين مختلفين في كل توليد
+  const weekEmpOrdered = shouldKeepSameShift
+    ? weekEmployees
+    : smartShuffle([...weekEmployees], actualSeed + weekIndex * 137);
+
+  let nextShifts = weekEmpOrdered.map(empId => {
     // ═══════════════════════════════════════════════════════════════════
     // الأسبوع الأول المشترك: إكمال نفس الشفت من الشهر السابق (HARD RULE)
     // ═══════════════════════════════════════════════════════════════════
