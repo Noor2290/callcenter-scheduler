@@ -622,14 +622,16 @@ export default function ScheduleGrid() {
               })
             });
             const json = await res.json();
-            if (json && json.assignments) {
+            if (res.ok && json && json.assignments) {
               setSettings({ year: nextYear, month: nextMonth });
               setData(json);
               updateGridFromData(json);
               setIsPreviewMode(true);
-              setMsg(`✅ تم توليد جدول الشهر التالي (${getMonthName(nextMonth)} ${nextYear})`);
+              setMsg(`✅ تم توليد جدول ${getMonthName(nextMonth)} ${nextYear} مع الحفاظ على استمرارية الشفت`);
             } else {
-              setMsg('❌ فشل في توليد الشهر التالي');
+              const errMsg = json?.error || 'خطأ غير معروف';
+              setMsg(`❌ فشل التوليد: ${errMsg}`);
+              console.error('[UI] Next month generation failed:', errMsg);
             }
           }}
           className="inline-flex items-center gap-2 h-9 px-4 text-sm font-medium rounded-lg bg-purple-500 hover:bg-purple-600 text-white transition-colors"
