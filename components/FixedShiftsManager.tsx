@@ -62,8 +62,17 @@ export default function FixedShiftsManager() {
         // Don't set error for fixed shifts, just log it
         setFixedShifts([]);
       } else {
-        setFixedShifts(fixedData.fixedShifts || []);
-        console.log('[FixedShifts] Fixed shifts loaded:', fixedData.fixedShifts?.length || 0);
+        // Match employees with fixed shifts
+        const fixedShiftsWithEmployees = (fixedData.fixedShifts || []).map((fs: any) => {
+          const employee = empData.items?.find((emp: any) => emp.id === fs.employee_id);
+          return {
+            ...fs,
+            employee: employee || { id: fs.employee_id, name: 'Unknown', code: null }
+          };
+        });
+        
+        setFixedShifts(fixedShiftsWithEmployees);
+        console.log('[FixedShifts] Fixed shifts loaded:', fixedShiftsWithEmployees.length);
       }
       
       setError(''); // Clear any previous errors

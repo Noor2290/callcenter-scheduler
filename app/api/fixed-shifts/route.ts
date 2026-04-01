@@ -6,69 +6,36 @@ export async function GET() {
     console.log('[API] Fixed shifts GET called');
     const sb = supabaseServer();
     
-    // First check if table exists
-    const { data: tableCheck, error: tableError } = await sb
-      .from('fixed_shifts')
-      .select('id')
-      .limit(1);
-    
-    if (tableError) {
-      console.error('[API] Table fixed_shifts does not exist:', tableError);
-      // Return empty result if table doesn't exist
-      return NextResponse.json({ fixedShifts: [] });
-    }
-    
-    console.log('[API] Table exists, fetching data...');
+    // Very simple query - just get the raw data
     const { data, error } = await sb
       .from('fixed_shifts')
-      .select(`
-        id,
-        employee_id,
-        shift_type
-      `);
+      .select('id, employee_id, shift_type');
     
     if (error) {
       console.error('[API] Error fetching fixed shifts:', error);
-      throw error;
-    }
-    
-    console.log('[API] Raw fixed shifts data:', data);
-    
-    // Fetch employee info separately
-    const employeeIds = (data || []).map(fs => fs.employee_id);
-    const employeesData: any[] = [];
-    
-    if (employeeIds.length > 0) {
-      const { data: empData, error: empError } = await sb
-        .from('employees')
-        .select('id, name, code')
-        .in('id', employeeIds);
-        
-      if (empError) {
-        console.error('[API] Error fetching employees:', empError);
-      } else {
-        employeesData.push(...(empData || []));
+      // If table doesn't exist, return empty
+      if (error.message?.includes('does not exist')) {
+        console.log('[API] Table does not exist, returning empty');
+        return NextResponse.json({ fixedShifts: [] });
       }
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
     
-    console.log('[API] Employees data:', employeesData);
-
-    // Transform data to include employee info
-    const fixedShifts = (data || []).map(item => {
-      const employee = employeesData.find(emp => emp.id === item.employee_id);
-      return {
-        id: item.id,
-        employee_id: item.employee_id,
-        shift_type: item.shift_type,
-        employee: employee || { id: item.employee_id, name: 'Unknown', code: null }
-      };
-    });
-
+    console.log('[API] Raw data:', data);
+    
+    // Return data without employee info for now
+    const fixedShifts = (data || []).map(item => ({
+      id: item.id,
+      employee_id: item.employee_id,
+      shift_type: item.shift_type,
+      employee: null // We'll handle this in the frontend
+    }));
+    
     console.log('[API] Transformed fixed shifts:', fixedShifts);
     return NextResponse.json({ fixedShifts });
   } catch (e: any) {
     console.error('[API] GET fixed shifts error:', e);
-    return NextResponse.json({ error: e.message ?? 'Failed to fetch fixed shifts' }, { status: 500 });
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
 
@@ -89,17 +56,7 @@ export async function POST(req: Request) {
 
     const sb = supabaseServer();
     
-    // Check if table exists first
-    const { error: tableError } = await sb
-      .from('fixed_shifts')
-      .select('id')
-      .limit(1);
-    
-    if (tableError) {
-      console.error('[API] Table fixed_shifts does not exist:', tableError);
-      return NextResponse.json({ error: 'Table fixed_shifts does not exist. Please run the migration first.' }, { status: 500 });
-    }
-    
+    // Simple insert
     const { data, error } = await sb
       .from('fixed_shifts')
       .upsert({ employee_id, shift_type }, { onConflict: 'employee_id' })
@@ -108,15 +65,8 @@ export async function POST(req: Request) {
 
     if (error) {
       console.error('[API] Error upserting fixed shift:', error);
-      throw error;
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
-    
-    // Fetch employee info
-    const { data: empData, error: empError } = await sb
-      .from('employees')
-      .select('id, name, code')
-      .eq('id', employee_id)
-      .single();
 
     console.log('[API] Fixed shift created/updated:', data);
 
@@ -125,11 +75,11 @@ export async function POST(req: Request) {
         id: data.id,
         employee_id: data.employee_id,
         shift_type: data.shift_type,
-        employee: empError ? { id: employee_id, name: 'Unknown', code: null } : empData
+        employee: null // We'll handle this in frontend
       }
     });
   } catch (e: any) {
     console.error('[API] POST fixed shifts error:', e);
-    return NextResponse.json({ error: e.message ?? 'Failed to set fixed shift' }, { status: 500 });
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
