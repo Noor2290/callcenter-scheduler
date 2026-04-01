@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from 'react';
-import { addDays, endOfMonth, format, startOfMonth } from 'date-fns';
+import { addDays, endOfMonth, format, startOfMonth, getDay } from 'date-fns';
+import VariationSelector from './VariationSelector';
+import { VariationStrategy } from '@/app/lib/variationStrategies';
 
 type Employee = { id: string; name: string; code: string | null };
 
@@ -50,7 +52,8 @@ export default function ScheduleGrid() {
   const [msg, setMsg] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isPreviewMode, setIsPreviewMode] = useState(true); // وضع المعاينة افتراضياً
+  const [isPreviewMode, setIsPreviewMode] = useState(true);
+  const [showVariationSelector, setShowVariationSelector] = useState(false);
 
   // load settings for year/month
   useEffect(() => {
@@ -87,9 +90,8 @@ export default function ScheduleGrid() {
 
   // لا توليد تلقائي عند تحميل الصفحة، فقط عرض الجدول المستورد أو عند الضغط على زر التوليد
 
-  // توليد جدول جديد (preview mode - لا يُحفظ في DB)
-  // يحافظ على الشفتات في بداية/نهاية الشهر فقط إذا كان هناك أسبوع مشترك
-  async function generateNewSchedule() {
+  // توليد جدول جديد مع variation strategy
+  async function generateNewScheduleWithVariation(strategy?: VariationStrategy, offset?: number) {
     if (!settings.year || !settings.month) {
       setMsg('الرجاء تحديد السنة والشهر أولاً');
       return;
@@ -183,10 +185,12 @@ export default function ScheduleGrid() {
         body: JSON.stringify({ 
           year: settings.year, 
           month: settings.month,
-          preview: true,  // ❌ لا يحفظ في DB أبداً
+          preview: true,
           seed: newSeed,
-          firstWeekShifts,  // ✅ شفتات أول أسبوع (إذا كان هناك أسبوع مشترك)
-          lastWeekShifts    // ✅ شفتات آخر أسبوع (إذا كان هناك أسبوع مشترك)
+          variationStrategy: strategy,
+          variationOffset: offset,
+          firstWeekShifts,
+          lastWeekShifts
         })
       });
       
@@ -248,12 +252,12 @@ export default function ScheduleGrid() {
         setIsPreviewMode(false);
         setMsg('تم تحميل الجدول المحفوظ');
       } else {
-        // لا يوجد جدول محفوظ - توليد جدول جديد
-        generateNewSchedule();
+        // لا يوجد جدول محفوظ - عرض رسالة
+        setMsg('لا يوجد جدول محفوظ - استخدم "توليد جدول جديد"');
       }
     } catch {
-      // في حالة الخطأ - توليد جدول جديد
-      generateNewSchedule();
+      // في حالة الخطأ - عرض رسالة
+      setMsg('لا يوجد جدول محفوظ - استخدم "توليد جدول جديد"');
     }
   }
 
@@ -507,6 +511,17 @@ export default function ScheduleGrid() {
         </div>
       )}
       
+      {/* Variation Selector */}
+      {showVariationSelector && (
+        <VariationSelector
+          onGenerate={(strategy, offset) => {
+            setShowVariationSelector(false);
+            generateNewScheduleWithVariation(strategy, offset);
+          }}
+          isGenerating={isGenerating}
+        />
+      )}
+      
       {/* أزرار التحكم */}
       <div className="flex gap-3 items-center flex-wrap">
         {/* زر توليد جدول الشهر التالي */}
@@ -581,7 +596,7 @@ export default function ScheduleGrid() {
         </button>
         {/* زر توليد جدول جديد */}
         <button 
-          onClick={generateNewSchedule} 
+          onClick={() => setShowVariationSelector(!showVariationSelector)} 
           className="px-5 py-2.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl font-medium shadow-md hover:shadow-lg disabled:opacity-60 flex items-center gap-2 transition-all" 
           disabled={isPending || isGenerating}
         >
@@ -704,18 +719,22 @@ export default function ScheduleGrid() {
                     const val = grid[String(emp.id)]?.[iso] ?? '';
                     const upper = val.toString().toUpperCase();
 
+                    // حساب اليوم للـ week separator
+                    const dayOfWeek = new Date(data.month.year, data.month.month - 1, Number(dStr)).getDay();
+                    const isWeekStart = dayOfWeek === 6; // السبت
+                    
                     // تلوين بحسب نوع الشفت
-                    let colorClass = '';
+                    let colorClass = 'shift-cell ';
                     if (upper === 'O') {
-                      colorClass = 'shift-off';
+                      colorClass += 'shift-off';
                     } else if (upper === 'V') {
-                      colorClass = 'shift-vacation';
+                      colorClass += 'shift-vacation';
                     } else if (upper === 'B') {
-                      colorClass = 'shift-between';
+                      colorClass += 'shift-between';
                     } else if (upper.startsWith('M') || upper === 'PT4') {
-                      colorClass = 'shift-morning';
+                      colorClass += 'shift-morning';
                     } else if (upper.startsWith('E') || upper === 'PT5') {
-                      colorClass = 'shift-evening';
+                      colorClass += 'shift-evening';
                     }
 
                     return (
