@@ -167,43 +167,102 @@ select:focus {
   border-color: var(--brand-100);
 }
 
-/* Schedule table */
+/* Schedule table - Modern & Clean */
 .schedule-table {
   font-size: 0.75rem;
 }
 .schedule-table th {
-  background: #1e293b;
+  background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
   color: white;
-  font-weight: 500;
-  padding: 8px 4px;
+  font-weight: 600;
+  padding: 12px 8px;
   position: sticky;
   top: 0;
   z-index: 10;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  letter-spacing: 0.025em;
 }
 .schedule-table td {
   padding: 0;
   border: 1px solid #e2e8f0;
+  position: relative;
+}
+.schedule-table tbody tr:hover td {
+  background-color: rgba(148, 163, 184, 0.05) !important;
 }
 .schedule-table input {
   width: 100%;
   text-align: center;
-  padding: 6px 2px;
+  padding: 8px 4px;
   border: none;
   background: transparent;
   font-size: 0.75rem;
-  font-weight: 500;
+  font-weight: 600;
+  transition: all 0.2s ease;
 }
 .schedule-table input:focus {
-  outline: 2px solid var(--brand-600);
+  outline: 2px solid #14b8a6;
   outline-offset: -2px;
+  background: rgba(255, 255, 255, 0.9);
+  z-index: 5;
 }
 
-/* Shift colors */
-.shift-morning { background: #fef9c3 !important; } /* yellow-100 */
-.shift-evening { background: #e0e7ff !important; } /* indigo-100 */
-.shift-off { background: #f1f5f9 !important; } /* slate-100 */
-.shift-vacation { background: #fed7aa !important; } /* orange-200 */
-.shift-between { background: #d1fae5 !important; } /* emerald-100 */
+/* Tooltip on hover */
+.schedule-table td:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e293b;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  white-space: nowrap;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.schedule-table td:hover::after {
+  opacity: 1;
+}
+
+/* Shift colors - Pastel & Professional */
+.shift-morning { 
+  background: #fef3c7 !important; /* amber-100 */
+  transition: all 0.2s ease;
+}
+.shift-morning:hover { 
+  background: #fde68a !important; /* amber-200 */
+  transform: scale(1.02);
+}
+.shift-evening { 
+  background: #ddd6fe !important; /* violet-200 */
+  transition: all 0.2s ease;
+}
+.shift-evening:hover { 
+  background: #c4b5fd !important; /* violet-300 */
+  transform: scale(1.02);
+}
+.shift-off { 
+  background: #f1f5f9 !important; /* slate-100 */
+}
+.shift-vacation { 
+  background: #fae8ff !important; /* fuchsia-100 */
+  transition: all 0.2s ease;
+}
+.shift-vacation:hover { 
+  background: #f5d0fe !important; /* fuchsia-200 */
+}
+.shift-between { 
+  background: #d1fae5 !important; /* emerald-100 */
+  transition: all 0.2s ease;
+}
+.shift-between:hover { 
+  background: #a7f3d0 !important; /* emerald-200 */
+}
 
 /* Status badges */
 .badge {
