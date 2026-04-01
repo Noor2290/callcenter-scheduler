@@ -34,22 +34,42 @@ export default function FixedShiftsManager() {
 
   const loadData = async () => {
     try {
+      console.log('[FixedShifts] Loading data...');
+      
+      // Load employees first
+      const empRes = await fetch('/api/employees');
+      console.log('[FixedShifts] Employees response status:', empRes.status);
+      const empData = await empRes.json();
+      console.log('[FixedShifts] Employees data:', empData);
+      
+      if (!empRes.ok) {
+        console.error('[FixedShifts] Failed to load employees:', empData);
+        setError(`Failed to load employees: ${empData.error || 'Unknown error'}`);
+        return;
+      }
+      
+      setEmployees(empData.items || []);
+      console.log('[FixedShifts] Employees loaded:', empData.items?.length || 0);
+      
       // Load fixed shifts
       const fixedRes = await fetch('/api/fixed-shifts');
+      console.log('[FixedShifts] Fixed shifts response status:', fixedRes.status);
       const fixedData = await fixedRes.json();
+      console.log('[FixedShifts] Fixed shifts data:', fixedData);
       
-      // Load employees
-      const empRes = await fetch('/api/employees');
-      const empData = await empRes.json();
-      
-      if (fixedRes.ok && empRes.ok) {
-        setFixedShifts(fixedData.fixedShifts || []);
-        setEmployees(empData.items || []);
+      if (!fixedRes.ok) {
+        console.error('[FixedShifts] Failed to load fixed shifts:', fixedData);
+        // Don't set error for fixed shifts, just log it
+        setFixedShifts([]);
       } else {
-        setError('Failed to load data');
+        setFixedShifts(fixedData.fixedShifts || []);
+        console.log('[FixedShifts] Fixed shifts loaded:', fixedData.fixedShifts?.length || 0);
       }
+      
+      setError(''); // Clear any previous errors
     } catch (err) {
-      setError('Error loading data');
+      console.error('[FixedShifts] Error loading data:', err);
+      setError(`Error loading data: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
