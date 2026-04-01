@@ -165,14 +165,16 @@ export async function generateSchedule({
   seed,
   firstWeekShifts,
   lastWeekShifts,
+  prevMonthLastWeekShifts,
   weekStartDay
 }: {
   year: number;
   month: number;
   preview?: boolean;  // true = لا يحفظ في DB
   seed?: number;      // seed عشوائي لتوليد جداول مختلفة
-  firstWeekShifts?: Record<string, 'Morning' | 'Evening'>;  // شفتات أول أسبوع (للتثبيت)
-  lastWeekShifts?: Record<string, 'Morning' | 'Evening'>;   // شفتات آخر أسبوع (للتثبيت)
+  firstWeekShifts?: Record<string, 'Morning' | 'Evening'>;       // شفتات أول أسبوع (لحفظ التوزيع عند إعادة التوليد)
+  lastWeekShifts?: Record<string, 'Morning' | 'Evening'>;        // شفتات آخر أسبوع (لحفظ التوزيع عند إعادة التوليد)
+  prevMonthLastWeekShifts?: Record<string, 'Morning' | 'Evening'>; // شفتات الشهر السابق (مصدر مستقل من DB للاستمرارية)
   weekStartDay?: number;
 }) {
   const sb = supabaseServer();
@@ -412,6 +414,7 @@ export async function generateSchedule({
   console.log(`[SCHEDULER] hasSharedWeekAtStart: ${hasSharedWeekAtStart}, hasSharedWeekAtEnd: ${hasSharedWeekAtEnd}`);
   console.log(`[SCHEDULER] firstWeekShifts: ${firstWeekShifts ? Object.keys(firstWeekShifts).length + ' employees' : 'undefined'}`);
   console.log(`[SCHEDULER] lastWeekShifts: ${lastWeekShifts ? Object.keys(lastWeekShifts).length + ' employees' : 'undefined'}`);
+  console.log(`[SCHEDULER] prevMonthLastWeekShifts: ${prevMonthLastWeekShifts ? Object.keys(prevMonthLastWeekShifts).length + ' employees' : 'undefined'} 🔒`);
 
   // تتبع آخر شفت لكل موظفة في التناوب (أسبوع صباح، أسبوع مساء)
   // نستخدم Map لحفظ آخر شفت لكل موظفة، ويتم التهيئة خارج حلقة الأسابيع
@@ -443,16 +446,27 @@ export async function generateSchedule({
     }
     
     // ═══════════════════════════════════════════════════════════════════
-    // الأولوية 2: استخدام lastWeekShifts من الشهر السابق (للتناوب)
+    // الأولوية 2: 🔒 prevMonthLastWeekShifts (مصدر موثوق من DB للاستمرارية عبر الشهور)
     // ═══════════════════════════════════════════════════════════════════
+    const crossMonthPrev = prevMonthLastWeekShifts?.[empId];
+    if (crossMonthPrev) {
+      if (isSharedWeek) {
+        // أسبوع مشترك: نكمّل نفس الشفت بالضبط (HARD RULE)
+        lastShiftType.set(empId, crossMonthPrev);
+        continue;
+      } else {
+        // شهر يبدأ السبت: نعكس الشفت عن الشهر السابق
+        lastShiftType.set(empId, crossMonthPrev === 'Morning' ? 'Evening' : 'Morning');
+        continue;
+      }
+    }
+    // الأولوية 3: lastWeekShifts من الواجهة (fallback للتوافقية)
     if (lastWeekShifts && weeks.length > 0) {
       const prev = lastWeekShifts[empId];
       if (isSharedWeek && prev) {
-        // أسبوع مشترك: نكمّل نفس الشفت (لن يتم عكسه في الأسبوع الأول)
         lastShiftType.set(empId, prev);
         continue;
       } else if (!isSharedWeek && prev) {
-        // الشهر يبدأ بأسبوع جديد (السبت): نبدأ بالمعكوس مباشرة
         lastShiftType.set(empId, prev === 'Morning' ? 'Evening' : 'Morning');
         continue;
       }
@@ -592,17 +606,22 @@ export async function generateSchedule({
   
   let nextShifts = weekEmployees.map(empId => {
     // ═══════════════════════════════════════════════════════════════════
-    // الأسبوع الأول المشترك: نستخدم firstWeekShifts أو lastWeekShifts
+    // الأسبوع الأول المشترك: إكمال نفس الشفت من الشهر السابق (HARD RULE)
     // ═══════════════════════════════════════════════════════════════════
     if (isFirstWeek && hasSharedWeekAtStart) {
-      // الأولوية 1: firstWeekShifts (من الجدول المعروض)
+      // الأولوية 1: firstWeekShifts (لتثبيت الأسبوع عند إعادة التوليد)
       if (firstWeekShifts && firstWeekShifts[empId]) {
         console.log(`[WEEK ${weekIndex}] ${empId}: FIRST WEEK FIXED -> ${firstWeekShifts[empId]}`);
         return { empId, nextShift: firstWeekShifts[empId] };
       }
-      // الأولوية 2: lastWeekShifts (من الشهر السابق)
+      // 🔒 الأولوية 2: prevMonthLastWeekShifts (HARD RULE - مصدر موثوق من DB)
+      if (prevMonthLastWeekShifts && prevMonthLastWeekShifts[empId]) {
+        console.log(`[WEEK ${weekIndex}] ${empId}: 🔒 CROSS-MONTH CONTINUITY -> ${prevMonthLastWeekShifts[empId]}`);
+        return { empId, nextShift: prevMonthLastWeekShifts[empId] };
+      }
+      // الأولوية 3: lastWeekShifts (fallback من الواجهة)
       if (lastWeekShifts && lastWeekShifts[empId]) {
-        console.log(`[WEEK ${weekIndex}] ${empId}: SHARED WEEK -> keeping ${lastWeekShifts[empId]}`);
+        console.log(`[WEEK ${weekIndex}] ${empId}: SHARED WEEK fallback -> keeping ${lastWeekShifts[empId]}`);
         return { empId, nextShift: lastWeekShifts[empId] };
       }
     }
@@ -1168,6 +1187,43 @@ export async function generateSchedule({
     }
   }
   
+  // 🔒 HARD RULE 3: استمرارية الشفت عبر نهاية الشهر (Cross-Month Continuity)
+  if (hasSharedWeekAtStart && prevMonthLastWeekShifts && Object.keys(prevMonthLastWeekShifts).length > 0) {
+    console.log(`\n[6.7] VALIDATION: التحقق من استمرارية الشفت عبر نهاية الشهر...`);
+    const firstMonthDay = format(allDays[0], 'yyyy-MM-dd');
+    let violations = 0;
+    for (const emp of rotatingEmployees) {
+      const empId = String(emp.id);
+      const expectedShift = prevMonthLastWeekShifts[empId];
+      if (!expectedShift) continue;
+      // البحث عن أول يوم عمل للموظف في الشهر الجديد (ليس جمعة)
+      const firstWorkDay = rows.find(r =>
+        r.employee_id === empId &&
+        getDay(new Date(r.date)) !== 5 && // ليس جمعة
+        r.symbol !== OFF &&
+        r.symbol !== VAC &&
+        r.symbol !== BETWEEN
+      );
+      if (!firstWorkDay) continue;
+      const actualShift =
+        firstWorkDay.symbol.startsWith('M') || firstWorkDay.symbol === 'PT4'
+          ? 'Morning'
+          : firstWorkDay.symbol.startsWith('E') || firstWorkDay.symbol === 'PT5' || firstWorkDay.symbol === 'MA4'
+          ? 'Evening'
+          : null;
+      if (actualShift && actualShift !== expectedShift) {
+        console.warn(`    ⚠️ CROSS-MONTH VIOLATION: ${emp.name} - متوقع: ${expectedShift}, فعلي: ${actualShift} (${firstWorkDay.date})`);
+        violations++;
+      }
+    }
+    if (violations === 0) {
+      console.log(`    ✅ Cross-Month Continuity: لا يوجد كسر في الأسابيع عبر الشهور (${firstMonthDay})`);
+    } else {
+      console.error(`    ❌ Cross-Month Continuity: ${violations} انتهاك! الأسبوع مكسور عبر نهاية الشهر`);
+      throw new Error(`❌ HARD RULE VIOLATION: استمرارية الشفت - ${violations} موظف لديهم شفت مختلف عن نهاية الشهر السابق`);
+    }
+  }
+
   console.log(`\n    ✅✅✅ VALIDATION PASSED - النظام production-ready! ✅✅✅`);
 
   // ═══════════════════════════════════════════════════════════════════════
