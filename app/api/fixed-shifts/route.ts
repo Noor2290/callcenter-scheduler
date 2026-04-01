@@ -24,25 +24,45 @@ export async function GET() {
       .select(`
         id,
         employee_id,
-        shift_type,
-        employees(id, name, code)
-      `)
-      .order('employees(name)', { ascending: true });
-
+        shift_type
+      `);
+    
     if (error) {
       console.error('[API] Error fetching fixed shifts:', error);
       throw error;
     }
-
-    console.log('[API] Raw data:', data);
+    
+    console.log('[API] Raw fixed shifts data:', data);
+    
+    // Fetch employee info separately
+    const employeeIds = (data || []).map(fs => fs.employee_id);
+    const employeesData: any[] = [];
+    
+    if (employeeIds.length > 0) {
+      const { data: empData, error: empError } = await sb
+        .from('employees')
+        .select('id, name, code')
+        .in('id', employeeIds);
+        
+      if (empError) {
+        console.error('[API] Error fetching employees:', empError);
+      } else {
+        employeesData.push(...(empData || []));
+      }
+    }
+    
+    console.log('[API] Employees data:', employeesData);
 
     // Transform data to include employee info
-    const fixedShifts = (data || []).map(item => ({
-      id: item.id,
-      employee_id: item.employee_id,
-      shift_type: item.shift_type,
-      employee: item.employees
-    }));
+    const fixedShifts = (data || []).map(item => {
+      const employee = employeesData.find(emp => emp.id === item.employee_id);
+      return {
+        id: item.id,
+        employee_id: item.employee_id,
+        shift_type: item.shift_type,
+        employee: employee || { id: item.employee_id, name: 'Unknown', code: null }
+      };
+    });
 
     console.log('[API] Transformed fixed shifts:', fixedShifts);
     return NextResponse.json({ fixedShifts });
@@ -83,18 +103,20 @@ export async function POST(req: Request) {
     const { data, error } = await sb
       .from('fixed_shifts')
       .upsert({ employee_id, shift_type }, { onConflict: 'employee_id' })
-      .select(`
-        id,
-        employee_id,
-        shift_type,
-        employees(id, name, code)
-      `)
+      .select('id, employee_id, shift_type')
       .single();
 
     if (error) {
       console.error('[API] Error upserting fixed shift:', error);
       throw error;
     }
+    
+    // Fetch employee info
+    const { data: empData, error: empError } = await sb
+      .from('employees')
+      .select('id, name, code')
+      .eq('id', employee_id)
+      .single();
 
     console.log('[API] Fixed shift created/updated:', data);
 
@@ -103,7 +125,7 @@ export async function POST(req: Request) {
         id: data.id,
         employee_id: data.employee_id,
         shift_type: data.shift_type,
-        employee: data.employees
+        employee: empError ? { id: employee_id, name: 'Unknown', code: null } : empData
       }
     });
   } catch (e: any) {
