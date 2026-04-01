@@ -32,23 +32,36 @@ export async function POST(req: NextRequest) {
     let year: number | undefined = settingsYear;
     let month: number | undefined = settingsMonth;
     
+    console.log(`[IMPORT] Initial values from form: year=${year}, month=${month}`);
+    
     // إذا لم يتم إرسال السنة/الشهر، حاول قراءتها من اسم الـ Sheet
     if (!year || !month) {
+      console.log(`[IMPORT] Trying to extract from sheet name: "${ws.name}"`);
       const m = /CALL\s*CENTER\s*(\d{4})[-\/](\d{1,2})/i.exec(ws.name);
       if (m) {
+        console.log(`[IMPORT] Sheet name match: year=${m[1]}, month=${m[2]}`);
         if (!year) year = Number(m[1]);
         if (!month) month = Number(m[2]);
+      } else {
+        console.log(`[IMPORT] No sheet name match found`);
       }
     }
     
     // إذا لم نجد، حاول البحث في الخلايا
     if (!year || !month) {
+      console.log(`[IMPORT] Searching in cells...`);
       outer: for (let r = 1; r <= Math.min(ws.rowCount, 25); r++) {
         const row = ws.getRow(r);
         for (let c = 1; c <= Math.min(ws.columnCount, 40); c++) {
           const v = row.getCell(c).value as any;
-          if (typeof v === 'number' && v >= 1 && v <= 12 && !month) month = v;
-          if (typeof v === 'number' && v >= 2000 && v <= 2100 && !year) year = v;
+          if (typeof v === 'number' && v >= 1 && v <= 12 && !month) {
+            month = v;
+            console.log(`[IMPORT] Found month in cell [${r},${c}]: ${month}`);
+          }
+          if (typeof v === 'number' && v >= 2000 && v <= 2100 && !year) {
+            year = v;
+            console.log(`[IMPORT] Found year in cell [${r},${c}]: ${year}`);
+          }
           if (year && month) break outer;
         }
       }
