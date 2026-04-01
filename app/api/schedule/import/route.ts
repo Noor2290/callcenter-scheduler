@@ -55,6 +55,10 @@ export async function POST(req: NextRequest) {
     }
     if (!year || !month) return NextResponse.json({ error: 'Could not detect year/month' }, { status: 400 });
 
+    // لوج لتشخيص مشكلة الشهر
+    console.log(`[IMPORT] Detected: year=${year}, month=${month}`);
+    console.log(`[IMPORT] Sheet name: "${ws.name}"`);
+
     const sb = supabaseServer();
     // Ensure month row
     const { data: monthRow, error: mErr } = await sb
