@@ -92,20 +92,14 @@ export default function Home() {
   return (
     <div className="space-y-8">
       {/* Hero Section */}
-      <div className="bg-gradient-to-br from-teal-500 to-teal-700 rounded-2xl p-8 text-white shadow-xl">
-        <div className="flex items-center gap-4 mb-4">
-          <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur">
-            <span className="text-3xl">📅</span>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold">Smart Shift Scheduler</h1>
-            <p className="text-teal-100 text-sm">نظام جدولة الشفتات الذكي - مركز الاتصالات</p>
-          </div>
+      <div className="flex items-center gap-4 px-6 py-5 bg-white rounded-xl border border-slate-200 shadow-sm">
+        <div className="w-12 h-12 rounded-xl bg-teal-500 flex items-center justify-center shrink-0">
+          <span className="text-white text-xl">📅</span>
         </div>
-        <p className="text-teal-50 text-sm leading-relaxed max-w-2xl">
-          اتبع الخطوات بالترتيب لإنشاء جدول الشفتات الشهري. يمكنك إضافة الموظفات، تحديد الإعدادات، 
-          إدخال طلبات الإجازات، ثم توليد الجدول وتصديره.
-        </p>
+        <div>
+          <h1 className="text-lg font-bold text-slate-800">Smart Shift Scheduler</h1>
+          <p className="text-sm text-slate-500">نظام جدولة الشفتات الذكي — مركز الاتصالات</p>
+        </div>
       </div>
 
       {/* Quick Stats */}
@@ -147,8 +141,8 @@ export default function Home() {
             >
               <div className="flex items-center gap-4">
                 {/* Step Number */}
-                <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${step.color} flex items-center justify-center shadow-md flex-shrink-0`}>
-                  <span className="text-white text-xl">{step.icon}</span>
+                <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                  <span className="text-xl">{step.icon}</span>
                 </div>
                 
                 {/* Content */}
@@ -173,11 +167,11 @@ export default function Home() {
                   </div>
                   <Link
                     href={step.disabled ? "#" : step.href}
-                    className={`px-5 py-2.5 rounded-xl font-medium transition-all flex items-center gap-2 ${
+                    className={`inline-flex items-center gap-1.5 h-9 px-4 text-sm font-medium rounded-lg transition-colors ${
                       step.primary
-                        ? "bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-md hover:shadow-lg"
-                        : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                    } ${step.disabled ? "pointer-events-none" : ""}`}
+                        ? "bg-teal-500 hover:bg-teal-600 text-white"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    } ${step.disabled ? "pointer-events-none opacity-40" : ""}`}
                   >
                     <span>{step.primary ? "ابدأ" : "فتح"}</span>
                     <span>←</span>

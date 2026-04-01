@@ -530,40 +530,24 @@ export default function ScheduleGrid() {
     <div className="space-y-6">
       {/* معلومات الجدول */}
       {data && (
-        <div className="flex flex-wrap items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
-          <div className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-indigo-600 rounded-lg shadow-sm">
-            <span className="text-white">📅</span>
-            <span className="text-base font-bold text-white">
-              {getMonthName(data.month.month)} {data.month.year}
-            </span>
-          </div>
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg border border-slate-200">
-            <span className="text-slate-400">👥</span>
-            <span className="text-sm font-medium text-slate-700">{data.employees.length} موظفة</span>
-          </div>
+        <div className="flex flex-wrap items-center gap-4 px-5 py-3 bg-white rounded-xl border border-slate-200 shadow-sm">
+          <span className="text-sm font-bold text-slate-800">
+            📅 {getMonthName(data.month.month)} {data.month.year}
+          </span>
+          <span className="w-px h-4 bg-slate-200 shrink-0"></span>
+          <span className="text-sm text-slate-500">👥 {data.employees.length} موظفة</span>
           {data.debug && (
             <>
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-yellow-50 rounded-lg border border-yellow-200">
-                <span>☀️</span>
-                <span className="text-sm font-medium text-yellow-700">صباح: {data.debug.coverageMorning}</span>
-              </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 rounded-lg border border-indigo-200">
-                <span>🌙</span>
-                <span className="text-sm font-medium text-indigo-700">مساء: {data.debug.coverageEvening}</span>
-              </div>
+              <span className="w-px h-4 bg-slate-200 shrink-0"></span>
+              <span className="text-sm text-amber-700 font-medium">☀️ صباح: {data.debug.coverageMorning}</span>
+              <span className="text-sm text-blue-600 font-medium">🌙 مساء: {data.debug.coverageEvening}</span>
             </>
           )}
           <div className="ms-auto">
             {isPreviewMode ? (
-              <span className="badge badge-warning">
-                <span>⏳</span>
-                <span>معاينة - غير محفوظ</span>
-              </span>
+              <span className="badge badge-warning">⏳ معاينة</span>
             ) : (
-              <span className="badge badge-success">
-                <span>✓</span>
-                <span>محفوظ</span>
-              </span>
+              <span className="badge badge-success">✓ محفوظ</span>
             )}
           </div>
         </div>
@@ -581,7 +565,8 @@ export default function ScheduleGrid() {
       )}
       
       {/* أزرار التحكم */}
-      <div className="flex gap-3 items-center flex-wrap">
+      <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-sm">
+      <div className="flex gap-2 items-center flex-wrap">
         {/* زر توليد جدول الشهر التالي */}
         <button
           onClick={async () => {
@@ -647,7 +632,7 @@ export default function ScheduleGrid() {
               setMsg('❌ فشل في توليد الشهر التالي');
             }
           }}
-          className="px-5 py-2.5 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl font-medium shadow-md hover:shadow-lg flex items-center gap-2 transition-all"
+          className="inline-flex items-center gap-2 h-9 px-4 text-sm font-medium rounded-lg bg-purple-500 hover:bg-purple-600 text-white transition-colors"
         >
           <span>⏭️</span>
           <span>توليد جدول الشهر التالي</span>
@@ -655,7 +640,7 @@ export default function ScheduleGrid() {
         {/* زر توليد جدول جديد */}
         <button 
           onClick={() => setShowVariationSelector(!showVariationSelector)} 
-          className="px-5 py-2.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-xl font-medium shadow-md hover:shadow-lg disabled:opacity-60 flex items-center gap-2 transition-all" 
+          className="inline-flex items-center gap-2 h-9 px-4 text-sm font-medium rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white transition-colors disabled:opacity-50" 
           disabled={isPending || isGenerating}
         >
           {(isPending || isGenerating) ? (
@@ -677,7 +662,7 @@ export default function ScheduleGrid() {
         {/* زر حفظ الجدول */}
         <button 
           onClick={saveCurrentScheduleToDb} 
-          className="px-5 py-2.5 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl font-medium shadow-md hover:shadow-lg disabled:opacity-60 flex items-center gap-2 transition-all" 
+          className="inline-flex items-center gap-2 h-9 px-4 text-sm font-medium rounded-lg bg-green-500 hover:bg-green-600 text-white transition-colors disabled:opacity-50" 
           disabled={isPending || isGenerating || Object.keys(grid).length === 0}
         >
           <span>💾</span>
@@ -687,7 +672,7 @@ export default function ScheduleGrid() {
         {/* زر تحميل المحفوظ - يفتح Modal الاختيار */}
         <button 
           onClick={() => setShowSavedModal(true)} 
-          className="px-5 py-2.5 bg-slate-600 text-white rounded-xl font-medium hover:bg-slate-700 disabled:opacity-60 flex items-center gap-2 transition-all" 
+          className="inline-flex items-center gap-2 h-9 px-4 text-sm font-medium rounded-lg bg-slate-500 hover:bg-slate-600 text-white transition-colors disabled:opacity-50" 
           disabled={isPending}
         >
           <span>📂</span>
@@ -697,26 +682,26 @@ export default function ScheduleGrid() {
         {/* زر حفظ التعديلات */}
         <button 
           onClick={saveChanges} 
-          className="px-5 py-2.5 bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-xl font-medium shadow-md hover:shadow-lg disabled:opacity-60 flex items-center gap-2 transition-all" 
+          className="inline-flex items-center gap-2 h-9 px-4 text-sm font-medium rounded-lg bg-teal-500 hover:bg-teal-600 text-white transition-colors disabled:opacity-50" 
           disabled={isPending}
         >
           <span>✏️</span>
           <span>حفظ التعديلات</span>
         </button>
         
-        <div className="h-8 w-px bg-slate-200 mx-1"></div>
+        <div className="h-6 w-px bg-slate-200"></div>
         
         {/* زر تصدير Excel */}
         <button 
           onClick={exportExcel} 
-          className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-xl font-medium shadow-md hover:shadow-lg flex items-center gap-2 transition-all"
+          className="inline-flex items-center gap-2 h-9 px-4 text-sm font-medium rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white transition-colors"
         >
           <span>📥</span>
           <span>تصدير Excel</span>
         </button>
         
         {/* زر استيراد Excel */}
-        <label className="px-5 py-2.5 bg-gradient-to-r from-sky-500 to-sky-600 text-white rounded-xl font-medium shadow-md hover:shadow-lg cursor-pointer flex items-center gap-2 transition-all">
+        <label className="inline-flex items-center gap-2 h-9 px-4 text-sm font-medium rounded-lg bg-sky-500 hover:bg-sky-600 text-white transition-colors cursor-pointer">
           <span>📤</span>
           <span>{isImporting ? 'جاري الاستيراد...' : 'استيراد Excel'}</span>
           <input
@@ -733,17 +718,18 @@ export default function ScheduleGrid() {
           />
         </label>
       </div>
+      </div>
       
       {/* رسالة الحالة */}
       {msg && (
-        <div className={`text-sm p-4 rounded-xl flex items-center gap-3 ${
+        <div className={`text-sm px-4 py-2.5 rounded-lg flex items-center gap-2.5 ${
           msg.startsWith('✅') 
             ? 'bg-green-50 text-green-800 border border-green-200' 
             : msg.startsWith('❌') 
               ? 'bg-red-50 text-red-800 border border-red-200' 
-              : 'bg-blue-50 text-blue-800 border border-blue-200'
+              : 'bg-blue-50 text-blue-700 border border-blue-200'
         }`}>
-          <span className="text-lg">{msg.startsWith('✅') ? '✅' : msg.startsWith('❌') ? '❌' : 'ℹ️'}</span>
+          <span>{msg.startsWith('✅') ? '✅' : msg.startsWith('❌') ? '❌' : 'ℹ️'}</span>
           <span>{msg.replace(/^[✅❌]\s*/, '')}</span>
         </div>
       )}
@@ -754,12 +740,12 @@ export default function ScheduleGrid() {
           <span className="text-sm">جاري تحميل الجدول...</span>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm" dir="ltr">
+        <div className="overflow-auto rounded-xl border border-slate-200" dir="ltr" style={{maxHeight: '72vh'}}>
           <table className="min-w-full text-xs schedule-table">
             <thead>
               <tr>
-                <th className="p-3 text-left font-semibold sticky right-0 bg-slate-800 z-20">NAME</th>
-                <th className="p-3 text-center font-semibold bg-slate-800">ID</th>
+                <th className="p-3 text-left font-semibold sticky right-0 top-0 bg-slate-800 z-30">NAME</th>
+                <th className="p-3 text-center font-semibold bg-slate-800 sticky top-0 z-20">ID</th>
                 {headerDays.map((d) => (
                   <th key={d} className="p-2 text-center font-medium" style={{ minWidth: 40 }}>{d}</th>
                 ))}
@@ -768,10 +754,10 @@ export default function ScheduleGrid() {
             <tbody>
               {data.employees.map((emp, empIdx) => (
                 <tr key={emp.id} className={empIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                  <td className="p-2 whitespace-nowrap text-left font-medium text-slate-700 sticky right-0 bg-inherit border-l border-slate-200 z-10">
+                  <td className="p-2 whitespace-nowrap text-left font-bold text-slate-900 sticky right-0 bg-inherit border-l border-slate-200 z-10 min-w-[140px]">
                     {emp.name}
                   </td>
-                  <td className="p-2 text-center text-slate-500 border-l border-slate-200">{emp.code || '-'}</td>
+                  <td className="p-2 text-center text-slate-400 text-xs border-l border-slate-200">{emp.code || '-'}</td>
                   {headerDays.map((dStr, idx) => {
                     const iso = toISO(data.month.year, data.month.month, Number(dStr));
                     const val = grid[String(emp.id)]?.[iso] ?? '';
@@ -813,27 +799,27 @@ export default function ScheduleGrid() {
       )}
       
       {/* Legend */}
-      <div className="flex flex-wrap items-center gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs">
-        <span className="font-medium text-slate-600">دليل الرموز:</span>
-        <div className="flex items-center gap-1.5">
-          <span className="w-6 h-6 rounded shift-morning flex items-center justify-center font-medium">M</span>
+      <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 bg-white rounded-xl border border-slate-200 text-xs">
+        <span className="font-semibold text-slate-500">دليل:</span>
+        <div className="flex items-center gap-1">
+          <span className="w-5 h-5 rounded shift-morning flex items-center justify-center font-bold text-[10px]">M</span>
           <span className="text-slate-600">صباح</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-6 h-6 rounded shift-evening flex items-center justify-center font-medium">E</span>
+        <div className="flex items-center gap-1">
+          <span className="w-5 h-5 rounded shift-evening flex items-center justify-center font-bold text-[10px]">E</span>
           <span className="text-slate-600">مساء</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-6 h-6 rounded shift-off flex items-center justify-center font-medium">O</span>
-          <span className="text-slate-600">إجازة أسبوعية</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-6 h-6 rounded shift-vacation flex items-center justify-center font-medium">V</span>
+        <div className="flex items-center gap-1">
+          <span className="w-5 h-5 rounded shift-off flex items-center justify-center font-bold text-[10px]">O</span>
           <span className="text-slate-600">إجازة</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-6 h-6 rounded shift-between flex items-center justify-center font-medium">B</span>
-          <span className="text-slate-600">Between</span>
+        <div className="flex items-center gap-1">
+          <span className="w-5 h-5 rounded shift-vacation flex items-center justify-center font-bold text-[10px]">V</span>
+          <span className="text-slate-600">إجازة سنوية</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="w-5 h-5 rounded shift-between flex items-center justify-center font-bold text-[10px]">B</span>
+          <span className="text-slate-600">بين</span>
         </div>
       </div>
     </div>

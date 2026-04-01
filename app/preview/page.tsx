@@ -7,20 +7,16 @@ export default function PreviewPage() {
       <Stepper />
       
       {/* Header */}
-      <div className="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-6 text-white shadow-lg">
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur">
-            <span className="text-2xl">📊</span>
-          </div>
-          <div>
-            <h1 className="text-xl font-bold">المعاينة والتصدير</h1>
-            <p className="text-emerald-100 text-sm">ولّد الجدول، عدّل محليًا، ثم صدّره إلى Excel</p>
-          </div>
+      <div className="flex items-center gap-3 px-5 py-4 bg-white rounded-xl border border-slate-200 shadow-sm">
+        <span className="text-2xl">📊</span>
+        <div>
+          <h1 className="text-base font-bold text-slate-800">المعاينة والتصدير</h1>
+          <p className="text-xs text-slate-500">ولّد الجدول، عدّل محليًا، ثم صدّره إلى Excel</p>
         </div>
       </div>
       
       {/* Schedule Grid */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+      <div className="bg-white rounded-xl border border-slate-200 p-5">
         <ScheduleGrid />
       </div>
     </div>

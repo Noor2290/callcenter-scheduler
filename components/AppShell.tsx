@@ -41,8 +41,8 @@ export default function AppShell({ children }: PropsWithChildren) {
                 className={clsx(
                   "px-4 py-2 rounded-lg transition-all flex items-center gap-2 font-medium",
                   pathname === n.href
-                    ? "bg-gradient-to-r from-teal-500 to-teal-600 text-white shadow-md"
-                    : "text-slate-600 hover:bg-teal-50 hover:text-teal-700"
+                    ? "bg-teal-500 text-white"
+                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-800"
                 )}
               >
                 <span className="text-base">{n.icon}</span>

@@ -20,30 +20,30 @@
   --radius-lg: 16px;
   
   /* Enterprise Shift Colors */
-  --morning-primary: #3B82F6;
-  --morning-light: #DBEAFE;
-  --morning-medium: #93C5FD;
-  --morning-border: #60A5FA;
-  --morning-text: #1E40AF;
+  --morning-primary: #D97706;
+  --morning-light: #FEFCE8;
+  --morning-medium: #FEF08A;
+  --morning-border: #FDE047;
+  --morning-text: #713F12;
   
-  --evening-primary: #6366F1;
-  --evening-light: #E0E7FF;
-  --evening-medium: #A5B4FC;
-  --evening-border: #818CF8;
-  --evening-text: #3730A3;
+  --evening-primary: #3B82F6;
+  --evening-light: #EFF6FF;
+  --evening-medium: #BFDBFE;
+  --evening-border: #93C5FD;
+  --evening-text: #1D4ED8;
   
-  --off-bg: #F1F5F9;
-  --off-border: #CBD5E1;
-  --off-text: #64748B;
+  --off-bg: #F8FAFC;
+  --off-border: #E2E8F0;
+  --off-text: #94A3B8;
   
   --fixed-bg: #F3E8FF;
   --fixed-light: #FAF5FF;
   --fixed-border: #A855F7;
   --fixed-text: #6B21A8;
   
-  --between-bg: #FEF3C7;
-  --between-border: #F59E0B;
-  --between-text: #92400E;
+  --between-bg: #FFF7ED;
+  --between-border: #FB923C;
+  --between-text: #9A3412;
   
   --vacation-bg: #DCFCE7;
   --vacation-border: #22C55E;
@@ -207,14 +207,14 @@ select:focus {
   font-size: 0.75rem;
 }
 .schedule-table th {
-  background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+  background: #1e293b;
   color: white;
   font-weight: 600;
-  padding: 12px 8px;
+  padding: 10px 8px;
   position: sticky;
   top: 0;
   z-index: 10;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  border-bottom: 2px solid #334155;
   letter-spacing: 0.025em;
 }
 .schedule-table td {
@@ -228,7 +228,7 @@ select:focus {
 .schedule-table input {
   width: 100%;
   text-align: center;
-  padding: 8px 4px;
+  padding: 10px 4px;
   border: none;
   background: transparent;
   font-size: 0.75rem;
@@ -276,8 +276,7 @@ select:focus {
 }
 
 .shift-cell:hover {
-  transform: scale(1.03);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  filter: brightness(0.95);
 }
 
 .shift-morning { 
