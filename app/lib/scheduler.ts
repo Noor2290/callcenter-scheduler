@@ -93,6 +93,12 @@ const EVENING_SHIFTS: Record<string, string> = {
 const MARWA_NAME = "Marwa Alrehaili"; // اسم مروة للبحث
 const MAX_OFF_PER_DAY = 2;
 
+// 🔒 HARD RULES - قواعد ثابتة غير قابلة للتغيير
+const HARD_RULES = {
+  fixedEvening: [3979], // توفيق المالكي - دائماً Evening
+  fixedSaturdayOff: [3864], // مروة الرحيلي - دائماً OFF يوم السبت
+};
+
 // استخدام smartShuffle من الأعلى بدلاً من shuffleWithSeed
 // (تم دمج الدوال لتجنب التكرار)
 
@@ -950,10 +956,25 @@ export async function generateSchedule({
     // ═══════════════════════════════════════════════════════════════════
     for (const emp of allEmployees) {
       const empId = String(emp.id);
+      const empIdNum = Number(emp.id);
       let symbol: string;
       
-      // 1. موظفة Between Shift (أولاً قبل أي شيء)
-      if (betweenEmployee && empId === String(betweenEmployee.id)) {
+      // 🔒 HARD RULE 1: توفيق المالكي (3979) → دائماً Evening
+      if (HARD_RULES.fixedEvening.includes(empIdNum)) {
+        if (vacationSet.has(`${empId}_${dateISO}`)) {
+          symbol = VAC;
+        } else if (weekOffMap.get(empId) === dateISO) {
+          symbol = OFF;
+        } else {
+          symbol = getShiftSymbol(emp, "Evening");
+        }
+      }
+      // 🔒 HARD RULE 2: مروة (3864) → السبت OFF دائماً
+      else if (HARD_RULES.fixedSaturdayOff.includes(empIdNum) && dow === 6) {
+        symbol = OFF;
+      }
+      // 1. موظفة Between Shift
+      else if (betweenEmployee && empId === String(betweenEmployee.id)) {
         if (weekOffMap.get(empId) === dateISO) {
           symbol = OFF;
         } else if (vacationSet.has(`${empId}_${dateISO}`)) {
@@ -1009,7 +1030,71 @@ export async function generateSchedule({
   console.log(`[5] إجمالي السجلات: ${rows.length}`);
 
   // ═══════════════════════════════════════════════════════════════════════
-  // الخطوة 6: التحقق من التغطية
+  // الخطوة 5.5: POST-PROCESSING FIX - سد الفراغات
+  // ═══════════════════════════════════════════════════════════════════════
+  
+  console.log(`\n[5.5] POST-PROCESSING: التحقق من اكتمال الجدول...`);
+  
+  // Map للتحقق السريع من وجود assignment
+  const assignmentMap = new Map<string, string>();
+  for (const row of rows) {
+    assignmentMap.set(`${row.employee_id}_${row.date}`, row.symbol);
+  }
+  
+  let fixedCells = 0;
+  for (const emp of allEmployees) {
+    const empId = String(emp.id);
+    for (const day of allDays) {
+      const dateISO = format(day, "yyyy-MM-dd");
+      const key = `${empId}_${dateISO}`;
+      
+      if (!assignmentMap.has(key)) {
+        // خلية فاضية - يجب ملؤها!
+        fixedCells++;
+        const dow = getDay(day);
+        const weekIndex = getWeekIndex(day, monthStart);
+        const weekShiftMap = weeklyShifts.get(weekIndex) || new Map();
+        
+        let symbol: string;
+        
+        // الجمعة → OFF
+        if (dow === 5) {
+          symbol = OFF;
+        }
+        // موظف له شفت محدد في هذا الأسبوع
+        else {
+          const shift = weekShiftMap.get(empId);
+          if (shift === "Morning") {
+            symbol = getShiftSymbol(emp, "Morning");
+          } else if (shift === "Evening") {
+            symbol = getShiftSymbol(emp, "Evening");
+          } else {
+            // Fallback - استخدام شفت افتراضي
+            symbol = getShiftSymbol(emp, "Morning");
+          }
+        }
+        
+        rows.push({
+          month_id: monthRow.id,
+          employee_id: empId,
+          date: dateISO,
+          symbol,
+          code: symbol
+        });
+        
+        assignmentMap.set(key, symbol);
+      }
+    }
+  }
+  
+  if (fixedCells > 0) {
+    console.log(`    ⚠️ تم إصلاح ${fixedCells} خلية فاضية`);
+  } else {
+    console.log(`    ✅ جميع الخلايا ممتلئة - لا حاجة للإصلاح`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // الخطوة 6: VALIDATION - التحقق الإلزامي
   // ═══════════════════════════════════════════════════════════════════════
   
   console.log(`\n[6] التحقق من التغطية...`);
@@ -1042,6 +1127,58 @@ export async function generateSchedule({
   } else {
     console.log(`    ⚠️ ${issues} مشكلة في التغطية`);
   }
+  
+  // 🔍 VALIDATION إلزامي: التأكد من أن كل موظف له جدول كامل
+  console.log(`\n[6.5] VALIDATION: التحقق من اكتمال الجدول...`);
+  
+  const expectedAssignments = allEmployees.length * allDays.length;
+  const actualAssignments = rows.length;
+  
+  console.log(`    - المتوقع: ${expectedAssignments} (${allEmployees.length} موظف × ${allDays.length} يوم)`);
+  console.log(`    - الفعلي: ${actualAssignments}`);
+  
+  if (actualAssignments !== expectedAssignments) {
+    throw new Error(`❌ VALIDATION FAILED: عدد السجلات غير صحيح! متوقع=${expectedAssignments}, فعلي=${actualAssignments}`);
+  }
+  
+  // التحقق من أن كل موظف له assignment لكل يوم
+  for (const emp of allEmployees) {
+    const empId = String(emp.id);
+    const empAssignments = rows.filter(r => r.employee_id === empId);
+    
+    if (empAssignments.length !== allDays.length) {
+      throw new Error(`❌ VALIDATION FAILED: ${emp.name} لديه ${empAssignments.length} يوم فقط من أصل ${allDays.length}`);
+    }
+  }
+  
+  // 🔒 التحقق من HARD RULES
+  console.log(`\n[6.6] VALIDATION: التحقق من HARD RULES...`);
+  
+  // HARD RULE 1: توفيق المالكي (3979) دائماً Evening
+  const tawfiqId = '3979';
+  const tawfiqAssignments = rows.filter(r => r.employee_id === tawfiqId && getDay(new Date(r.date)) !== 5);
+  const tawfiqNonEvening = tawfiqAssignments.filter(r => 
+    r.symbol !== VAC && r.symbol !== OFF && !Object.values(EVENING_SHIFTS).includes(r.symbol)
+  );
+  
+  if (tawfiqNonEvening.length > 0) {
+    throw new Error(`❌ HARD RULE VIOLATION: توفيق المالكي لديه ${tawfiqNonEvening.length} شفت غير Evening!`);
+  } else {
+    console.log(`    ✅ توفيق المالكي: كل الشفتات Evening`);
+  }
+  
+  // HARD RULE 2: مروة (3864) كل سبت OFF
+  const marwaId2 = '3864';
+  const marwaSaturdays = rows.filter(r => r.employee_id === marwaId2 && getDay(new Date(r.date)) === 6);
+  const marwaNonOff = marwaSaturdays.filter(r => r.symbol !== OFF);
+  
+  if (marwaNonOff.length > 0) {
+    throw new Error(`❌ HARD RULE VIOLATION: مروة الرحيلي لديها ${marwaNonOff.length} سبت غير OFF!`);
+  } else {
+    console.log(`    ✅ مروة الرحيلي: كل السبت OFF (${marwaSaturdays.length} يوم)`);
+  }
+  
+  console.log(`\n    ✅✅✅ VALIDATION PASSED - النظام production-ready! ✅✅✅`);
 
   // ═══════════════════════════════════════════════════════════════════════
   // الخطوة 7: الحفظ في قاعدة البيانات (فقط إذا لم يكن preview)
@@ -1067,9 +1204,14 @@ export async function generateSchedule({
   }));
 
   // لوج نهائي للتأكد من عدد الموظفات والسجلات
-  console.log(`[FINAL] عدد الموظفات: ${allEmployees.length}`);
-  console.log(`[FINAL] عدد السجلات: ${rows.length}`);
-  console.log(`[FINAL] أسماء الموظفات:`, allEmployees.map(e => e.name));
+  console.log(`\n${'═'.repeat(60)}`);
+  console.log(`[✅ SUCCESS] عدد الموظفات: ${allEmployees.length}`);
+  console.log(`[✅ SUCCESS] عدد السجلات: ${rows.length}`);
+  console.log(`[✅ SUCCESS] التغطية: صباح=${settings.coverageMorning}, مساء=${settings.coverageEvening}`);
+  console.log(`[✅ SUCCESS] HARD RULES: مطبقة بنجاح`);
+  console.log(`[✅ SUCCESS] VALIDATION: passed`);
+  console.log(`${'═'.repeat(60)}\n`);
+  console.log(`[FINAL] أسماء الموظفات:`, allEmployees.map(e => e.name).join(', '));
   
   return {
     ok: true,
