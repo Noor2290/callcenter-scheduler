@@ -6,14 +6,17 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * POST /api/schedule/generate
+ * POST /api/schedule/generate - Enterprise Clean System
  * 
  * Body:
  * - year: number (required)
  * - month: number (required)
- * - preview: boolean (optional, default: false) - إذا true لا يحفظ في DB
- * - seed: number (optional) - seed عشوائي لتوليد جداول مختلفة
- * - save: boolean (optional) - إذا true يحفظ الجدول الحالي
+ * - preview: boolean (optional, default: true) - إذا true لا يحفظ في DB
+ * - seed: number (optional) - seed للتنويع الذكي
+ * - variationStrategy: string (optional) - استراتيجية التنويع
+ * - variationOffset: number (optional) - معامل التنويع
+ * - firstWeekShifts: object (optional) - شفتات أول أسبوع للاستمرارية
+ * - lastWeekShifts: object (optional) - شفتات آخر أسبوع للاستمرارية
  */
 export async function POST(req: NextRequest) {
   try {
