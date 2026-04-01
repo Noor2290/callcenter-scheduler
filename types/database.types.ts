@@ -96,6 +96,30 @@ export interface Database {
         };
         Relationships: [];
       };
+      fixed_shifts: {
+        Row: {
+          id: string;
+          employee_id: string;
+          shift_type: 'Morning' | 'Evening';
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          employee_id: string;
+          shift_type: 'Morning' | 'Evening';
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          employee_id?: string;
+          shift_type?: 'Morning' | 'Evening';
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       settings: {
         Row: { key: string; value: string | null };
         Insert: { key: string; value?: string | null };

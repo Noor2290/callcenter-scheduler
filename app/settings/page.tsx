@@ -1,4 +1,5 @@
 import SettingsForm from '@/components/SettingsForm';
+import FixedShiftsManager from '@/components/FixedShiftsManager';
 import Stepper from '@/components/Stepper';
 import Link from 'next/link';
 
@@ -42,6 +43,10 @@ export default function SettingsPage() {
           </Link>
         </div>
       </div>
+      
+      
+      {/* Fixed Shifts Manager */}
+      <FixedShiftsManager />
     </div>
   );
 }

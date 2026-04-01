@@ -195,6 +195,17 @@ export async function generateSchedule({
   console.log(`[1] عدد الموظفات: ${allEmployees.length}`);
   console.log(`[1] أسماء الموظفات:`, allEmployees.map(e => `${e.name} (${e.id})`).join(', '));
 
+  // تحميل الشفتات الثابتة
+  const { data: fixedShiftsData } = await sb.from("fixed_shifts").select("*");
+  const fixedShifts = new Map<string, 'Morning' | 'Evening'>();
+  for (const fs of fixedShiftsData || []) {
+    fixedShifts.set(fs.employee_id, fs.shift_type);
+  }
+  console.log(`[1] الشفتات الثابتة:`, Array.from(fixedShifts.entries()).map(([id, shift]) => {
+    const emp = allEmployees.find(e => e.id === id);
+    return `${emp?.name || id} → ${shift}`;
+  }).join(', '));
+
   // تحميل الإعدادات (المصدر الوحيد للحقيقة)
   const { data: settingsData } = await sb.from("settings").select("key, value");
   const settingsMap: Record<string, string> = {};
@@ -220,6 +231,23 @@ export async function generateSchedule({
   if (settings.coverageMorning === 0 || settings.coverageEvening === 0) {
     throw new Error("يجب تحديد قيم التغطية في صفحة الإعدادات");
   }
+  
+  // التحقق من أن الشفتات الثابتة لا تتجاوز التغطية المطلوبة
+  const fixedMorningCount = Array.from(fixedShifts.values()).filter(s => s === 'Morning').length;
+  const fixedEveningCount = Array.from(fixedShifts.values()).filter(s => s === 'Evening').length;
+  
+  if (fixedMorningCount > settings.coverageMorning) {
+    throw new Error(`عدد الموظفين الثابتين في الشفت الصباحي (${fixedMorningCount}) يتجاوز التغطية المطلوبة (${settings.coverageMorning})`);
+  }
+  
+  if (fixedEveningCount > settings.coverageEvening) {
+    throw new Error(`عدد الموظفين الثابتين في الشفت المسائي (${fixedEveningCount}) يتجاوز التغطية المطلوبة (${settings.coverageEvening})`);
+  }
+  
+  console.log(`[1] التحقق من الشفتات الثابتة:`);
+  console.log(`    - الثابتون صباحي: ${fixedMorningCount} (المطلوب: ${settings.coverageMorning})`);
+  console.log(`    - الثابتون مسائي: ${fixedEveningCount} (المطلوب: ${settings.coverageEvening})`);
+  console.log(`    - المتبقي للتوزيع: صباحي ${settings.coverageMorning - fixedMorningCount}, مسائي ${settings.coverageEvening - fixedEveningCount}`);
 
   // فصل موظفة Between Shift
   let betweenEmployee: Employee | null = null;
@@ -456,7 +484,20 @@ export async function generateSchedule({
   }
 
   // تجهيز الموظفات القابلات للتناوب فقط (بدون الثابتات)
-  const weekEmployees = rotatingEmployees.map(e => String(e.id));
+  const weekEmployees = rotatingEmployees
+    .filter(e => !fixedShifts.has(String(e.id))) // استبعاد الموظفات ذات الشفتات الثابتة
+    .map(e => String(e.id));
+  
+  // تطبيق الشفتات الثابتة
+  for (const [empId, shiftType] of fixedShifts.entries()) {
+    // التأكد من أن الموظف موجود في rotatingEmployees
+    const emp = rotatingEmployees.find(e => String(e.id) === empId);
+    if (emp) {
+      shiftMap.set(empId, shiftType);
+      empWeeklyShift.get(empId)!.set(weekIndex, shiftType);
+      console.log(`[WEEK ${weekIndex}] تطبيق شفت ثابت: ${emp.name} → ${shiftType}`);
+    }
+  }
 
   // ═══════════════════════════════════════════════════════════════════
   // منطق التناوب الأسبوعي (سبت-خميس):
