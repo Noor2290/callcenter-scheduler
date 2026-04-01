@@ -489,13 +489,24 @@ export async function generateSchedule({
     .map(e => String(e.id));
   
   // تطبيق الشفتات الثابتة
+  console.log(`[WEEK ${weekIndex}] جاري تطبيق الشفتات الثابتة...`);
+  console.log(`[WEEK ${weekIndex}] عدد rotatingEmployees: ${rotatingEmployees.length}`);
+  console.log(`[WEEK ${weekIndex}] fixedShifts:`, Array.from(fixedShifts.entries()));
+  
   for (const [empId, shiftType] of fixedShifts.entries()) {
-    // التأكد من أن الموظف موجود في rotatingEmployees
-    const emp = rotatingEmployees.find(e => String(e.id) === empId);
+    console.log(`[WEEK ${weekIndex}] محاولة تطبيق شفت ثابت للموظف ${empId} → ${shiftType}`);
+    
+    // البحث عن الموظف في allEmployees أولاً
+    const emp = allEmployees.find(e => String(e.id) === empId);
     if (emp) {
+      console.log(`[WEEK ${weekIndex}] تم العثور على الموظف: ${emp.name}`);
+      
+      // تطبيق الشفت الثابت
       shiftMap.set(empId, shiftType);
       empWeeklyShift.get(empId)!.set(weekIndex, shiftType);
-      console.log(`[WEEK ${weekIndex}] تطبيق شفت ثابت: ${emp.name} → ${shiftType}`);
+      console.log(`[WEEK ${weekIndex}] ✅ تطبيق شفت ثابت: ${emp.name} → ${shiftType}`);
+    } else {
+      console.log(`[WEEK ${weekIndex}] ❌ لم يتم العثور على الموظف: ${empId}`);
     }
   }
 
