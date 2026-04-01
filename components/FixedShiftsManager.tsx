@@ -85,6 +85,10 @@ export default function FixedShiftsManager() {
   };
 
   const addFixedShift = async () => {
+    console.log('[FixedShifts] Add button clicked');
+    console.log('[FixedShifts] Selected employee:', selectedEmployee);
+    console.log('[FixedShifts] Selected shift:', selectedShift);
+    
     if (!selectedEmployee) {
       setError('Please select an employee');
       return;
@@ -97,26 +101,47 @@ export default function FixedShiftsManager() {
     }
 
     try {
+      console.log('[FixedShifts] Sending POST request...');
+      const requestBody = {
+        employee_id: selectedEmployee,
+        shift_type: selectedShift
+      };
+      console.log('[FixedShifts] Request body:', requestBody);
+      
       const res = await fetch('/api/fixed-shifts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          employee_id: selectedEmployee,
-          shift_type: selectedShift
-        })
+        body: JSON.stringify(requestBody)
       });
 
+      console.log('[FixedShifts] Response status:', res.status);
       const data = await res.json();
+      console.log('[FixedShifts] Response data:', data);
       
       if (res.ok) {
-        setFixedShifts([...fixedShifts, data.fixedShift]);
+        console.log('[FixedShifts] Success! Adding to list...');
+        // Get employee info for the new fixed shift
+        const employee = employees.find(emp => emp.id === selectedEmployee);
+        const newFixedShift = {
+          ...data.fixedShift,
+          employee: employee || { id: selectedEmployee, name: 'Unknown', code: null }
+        };
+        
+        setFixedShifts([...fixedShifts, newFixedShift]);
         setSelectedEmployee('');
         setSuccess('Fixed shift added successfully');
         setError('');
+        
+        // Reload data to ensure consistency
+        setTimeout(() => {
+          loadData();
+        }, 500);
       } else {
+        console.error('[FixedShifts] Error from API:', data.error);
         setError(data.error || 'Failed to add fixed shift');
       }
     } catch (err) {
+      console.error('[FixedShifts] Exception:', err);
       setError('Error adding fixed shift');
     }
   };
