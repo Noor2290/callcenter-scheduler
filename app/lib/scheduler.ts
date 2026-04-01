@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
-//  GENERATE SCHEDULE — v12.0 (PREVIEW + RANDOM SEED)
+//  GENERATE SCHEDULE — v13.0 (SMART VARIATION + FIXED SHIFTS)
 //  
-//  ❗ هذا الملف يتبع التعليمات الرئيسية فقط - لا منطق قديم
+//  ❗ تحسينات: تنويع ذكي + احترام الشفتات الثابتة
 //  
 //  📌 التغطية من الإعدادات فقط (بدون defaults):
 //     - Morning Coverage = بالضبط العدد المحدد (لا زيادة، لا نقصان)
@@ -48,6 +48,29 @@ import {
 import supabaseServer from "@/app/lib/supabaseServer";
 
 // ═══════════════════════════════════════════════════════════════════════════
+// SMART SHUFFLE FUNCTION (with seed-based randomization)
+// ═══════════════════════════════════════════════════════════════════════════
+function seededRandom(seed: number) {
+  let state = seed;
+  return function() {
+    state = (state * 9301 + 49297) % 233280;
+    return state / 233280;
+  };
+}
+
+function smartShuffle<T>(array: T[], seed: number): T[] {
+  const shuffled = [...array];
+  const random = seededRandom(seed);
+  
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  
+  return shuffled;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════
 const OFF = "O";
@@ -70,25 +93,8 @@ const EVENING_SHIFTS: Record<string, string> = {
 const MARWA_NAME = "Marwa Alrehaili"; // اسم مروة للبحث
 const MAX_OFF_PER_DAY = 2;
 
-// ═══════════════════════════════════════════════════════════════════════════
-// SEEDED RANDOM - لتوليد جداول مختلفة مع كل seed
-// ═══════════════════════════════════════════════════════════════════════════
-function seededRandom(seed: number): () => number {
-  return function() {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    return seed / 0x7fffffff;
-  };
-}
-
-function shuffleWithSeed<T>(arr: T[], seed: number): T[] {
-  const result = [...arr];
-  const random = seededRandom(seed);
-  for (let i = result.length - 1; i > 0; i--) {
-    const j = Math.floor(random() * (i + 1));
-    [result[i], result[j]] = [result[j], result[i]];
-  }
-  return result;
-}
+// استخدام smartShuffle من الأعلى بدلاً من shuffleWithSeed
+// (تم دمج الدوال لتجنب التكرار)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -744,7 +750,7 @@ export async function generateSchedule({
     if (workDays.length === 0) continue;
     
     // خلط أيام OFF عشوائياً (للموظفات غير مروة)
-    const shuffledOffDays = shuffleWithSeed([...offDaysForOthers], actualSeed + weekIndex * 500);
+    const shuffledOffDays = smartShuffle([...offDaysForOthers], actualSeed + weekIndex * 500);
     
     // تتبع عدد OFF لكل يوم
     const dayOffCount = new Map<string, number>();
@@ -755,7 +761,7 @@ export async function generateSchedule({
     // جميع الموظفات (عادية + between) - مخلوطة عشوائياً
     const allEmpsForOff = [...regularEmployees];
     if (betweenEmployee) allEmpsForOff.push(betweenEmployee);
-    const shuffledEmps = shuffleWithSeed(allEmpsForOff, actualSeed + weekIndex * 700);
+    const shuffledEmps = smartShuffle(allEmpsForOff, actualSeed + weekIndex * 700);
     
     // ═══════════════════════════════════════════════════════════════════
     // أولاً: معالجة مروة (السبت OFF)

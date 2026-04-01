@@ -31,10 +31,45 @@ export default function FixedShiftsManager() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [selectedYear, setSelectedYear] = useState<number>();
+  const [selectedMonth, setSelectedMonth] = useState<number>();
 
   useEffect(() => {
+    loadSettings();
     loadData();
   }, []);
+  
+  // تحديث Date Pickers عند تغيير الشهر/السنة
+  useEffect(() => {
+    if (selectedYear && selectedMonth) {
+      // تعيين التاريخ الافتراضي لأول يوم في الشهر المختار
+      const firstDay = new Date(selectedYear, selectedMonth - 1, 1);
+      const lastDay = new Date(selectedYear, selectedMonth, 0);
+      
+      const formatDate = (date: Date) => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+      
+      if (!startDate) setStartDate(formatDate(firstDay));
+      if (!endDate) setEndDate(formatDate(lastDay));
+    }
+  }, [selectedYear, selectedMonth]);
+  
+  const loadSettings = async () => {
+    try {
+      const res = await fetch('/api/settings');
+      const data = await res.json();
+      if (res.ok && data.year && data.month) {
+        setSelectedYear(data.year);
+        setSelectedMonth(data.month);
+      }
+    } catch (err) {
+      console.error('Failed to load settings:', err);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -264,6 +299,8 @@ export default function FixedShiftsManager() {
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
+                  min={selectedYear && selectedMonth ? `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01` : undefined}
+                  max={selectedYear && selectedMonth ? `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${new Date(selectedYear, selectedMonth, 0).getDate()}` : undefined}
                   required
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                 />
@@ -276,6 +313,8 @@ export default function FixedShiftsManager() {
                   type="date"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
+                  min={startDate || (selectedYear && selectedMonth ? `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01` : undefined)}
+                  max={selectedYear && selectedMonth ? `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${new Date(selectedYear, selectedMonth, 0).getDate()}` : undefined}
                   required
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                 />
